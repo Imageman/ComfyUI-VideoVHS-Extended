@@ -1,0 +1,2 @@
+# Runtime dependencies (torch, numpy, Pillow) are provided by ComfyUI and original VHS.
+# External executables required: NVENC-enabled ffmpeg and ffprobe.

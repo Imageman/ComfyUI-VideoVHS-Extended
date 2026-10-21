@@ -1,0 +1,34 @@
+{
+    "1": {
+        "class_type": "VHS_LoadVideo",
+        "inputs": {
+            "video": "fly001.mp4",
+            "force_rate": 24,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "skip_first_frames": 0,
+            "select_every_nth": 1,
+            "format": "AnimateDiff"
+        }
+    },
+    "2": {
+        "class_type": "VHSE_VideoSave",
+        "inputs": {
+            "images": ["1", 0],
+            "audio": ["1", 2],
+            "source_fps": "24",
+            "target_fps": "24",
+            "target_frames": "300",
+            "width": "1920",
+            "height": "1080",
+            "resize_method": "bicubic",
+            "resize_mode": "crop",
+            "cq": 19,
+            "preset": "p5",
+            "filename_prefix": "video_extended",
+            "save_output": true,
+            "include_audio": true
+        }
+    }
+}

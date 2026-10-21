@@ -1,0 +1,17 @@
+{
+    "main_pass": [
+        "-n", "-c:v", "h264_nvenc",
+        "-preset", ["preset", ["p4", "p5", "p6", "p7"], {"default": "p5"}],
+        "-tune", "hq", "-rc", "vbr",
+        "-cq", ["cq", "INT", {"default": 19, "min": 0, "max": 51}],
+        "-b:v", "0", "-pix_fmt", "yuv420p",
+        "-vf", ["vhse_filter", "STRING", {"default": "scale=out_color_matrix=bt709,setsar=1"}],
+        "-color_range", "tv", "-colorspace", "bt709",
+        "-color_primaries", "bt709", "-color_trc", "bt709",
+        "-movflags", "+faststart", "-fps_mode", "cfr"
+    ],
+    "fake_trc": "bt709",
+    "dim_alignment": 1,
+    "save_metadata": "False",
+    "extension": "mp4"
+}
