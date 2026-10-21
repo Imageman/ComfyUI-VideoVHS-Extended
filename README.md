@@ -179,29 +179,3 @@ one real ComfyUI workflow. The integration depends on `combine_video`, additiona
 Fraction frame rates, sequence iteration, metadata controls and the `ui.gifs`/`VHS_FILENAMES` return schema.
 These extension interfaces may change upstream; a matching node name alone is not proof of compatibility.
 
-## Tests
-
-Use a separate development environment, or the project `.venv`:
-
-```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
-python test_frame_mapping.py
-python test_video_integration.py
-```
-
-Tests are standalone `test_*.py` scripts in the repository root. Temporary media stays under `tmp/`.
-The isolated reference harness executes original VHS methods directly, substituting ComfyUI infrastructure
-and a minimal CPU tensor protocol. If torch is installed, an additional test exercises actual torch tensors.
-This validates the encoder adapter, not ComfyUI's loader or browser frontend. Those need a running ComfyUI.
-GPU-dependent tests skip with an explicit reason if the NVENC runtime probe fails.
-
-For a live API check, set `VHSE_COMFY_URL=http://127.0.0.1:8188` and run `python test_comfy_api.py`.
-This uploads a uniquely named copy of `tests/fly001.mp4`, saves temporary outputs through both VHSE and original VHS,
-and verifies the files fetched over HTTP. The uploaded input and generated files remain in ComfyUI input/temp;
-the test does not delete server-side files. Run it when ComfyUI is idle.
-
-The optional user-provided `tests/fly001.mp4` enables three longer FullHD/audio integration runs.
-Small synthetic tests cover all requested frame-count pairs, compressed endpoint PSNR, dimensions,
-audio tempo/pitch/start/sync, rational FPS, failure cleanup and existing-file preservation.
-See [VALIDATION.md](VALIDATION.md) for the actual execution record and unverified environments.
