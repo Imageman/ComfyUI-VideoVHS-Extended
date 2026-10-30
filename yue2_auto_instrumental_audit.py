@@ -34,8 +34,11 @@ from yue2_auto_instrumental import (
     PartialParseState,
     ScoreError,
     ScoreEvent,
+    _build_grid,
+    _full_measure_silence_intervals,
     _score_end,
     _score_seconds,
+    _transfer_melody,
     convert_abc,
 )
 
@@ -66,6 +69,7 @@ SUMMARY_FIELDS = (
     "status",
     "category",
     "conversion_status",
+    "source_conversion_status",
     "repair_count",
     "upstream_status",
     "vocal_absence_confirmed",
@@ -74,6 +78,16 @@ SUMMARY_FIELDS = (
     "source_events_changed",
     "events_preserved",
     "events_modified",
+    "converted_measures",
+    "raw_preserved_measures",
+    "resynchronized_segments",
+    "source_music_coverage",
+    "output_contains_full_source_music",
+    "duration_known",
+    "vocal_duration_extensions",
+    "added_output_measures",
+    "notes_in_source_silence",
+    "exact_transfer_timeline",
     "ins_preservation",
     "vocal_notes",
     "vocal_transferred",
@@ -95,6 +109,7 @@ class AuditRecord:
     status: str = "failed"
     category: str = "FAILED"
     conversion_status: str = "FAILED"
+    source_conversion_status: str = ""
     repair_count: int = 0
     upstream_status: str = "not_run"
     vocal_absence_confirmed: str = "unknown"
@@ -103,6 +118,16 @@ class AuditRecord:
     source_events_changed: int | None = None
     events_preserved: int | None = None
     events_modified: int | None = None
+    converted_measures: int = 0
+    raw_preserved_measures: int = 0
+    resynchronized_segments: int = 0
+    source_music_coverage: float = 0.0
+    output_contains_full_source_music: bool = False
+    duration_known: bool = False
+    vocal_duration_extensions: int = 0
+    added_output_measures: int = 0
+    notes_in_source_silence: int = 0
+    exact_transfer_timeline: str = "unknown"
     ins_preservation: str = "unknown"
     vocal_notes: int = 0
     vocal_transferred: int = 0
@@ -772,8 +797,9 @@ def _partial_raw_artifacts(
     candidate_log: list[dict[str, object]],
     conversion_status: str,
     events_after: dict[str, Any] | None = None,
+    diagnostic_segments: list[dict[str, object]] | None = None,
 ) -> None:
-    """Save a partial result, its exact source spans, candidate log, and validation state."""
+    """Save raw output, validated diagnostic conversions, source spans, and audit validation."""
     directory.mkdir(parents=True, exist_ok=False)
     source_path = directory / "source.abc"
     try:
@@ -786,6 +812,11 @@ def _partial_raw_artifacts(
     if conversion_status == "SMART_PARTIAL":
         _write_text(directory / "repaired.abc", repaired_text)
         _write_text(directory / "converted.abc", partial_text)
+    elif repaired_text:
+        _write_text(directory / "verified_prefix.abc", repaired_text)
+    for segment in diagnostic_segments or []:
+        segment_id = int(segment["segment"])
+        _write_text(directory / f"resynchronized_segment_{segment_id:03d}.abc", str(segment["abc"]))
     _write_json(
         directory / "repairs.json",
         {
@@ -793,6 +824,10 @@ def _partial_raw_artifacts(
             "candidates": candidate_log,
             "repairs": [],
             "verbatim_spans": spans,
+            "diagnostic_segments": [
+                {key: value for key, value in segment.items() if key != "abc"}
+                for segment in diagnostic_segments or []
+            ],
         },
     )
     _write_json(directory / "validation.json", validation)
@@ -809,8 +844,8 @@ def _partial_raw_artifacts(
                     "Only a complete aligned prefix was converted; the remaining source spans are preserved."
                     if conversion_status == "SMART_PARTIAL"
                     else (
-                        "The complete source text was returned verbatim because no safe partial serialization "
-                        "was available."
+                        "The complete source is the main output; strict prefix and resynchronized conversions "
+                        "are diagnostics only."
                     )
                 ),
                 "Raw syntax and Vocal absence are not fully validated.",
@@ -887,11 +922,22 @@ def _audit_one_file(
                 conversion = warning_details.get("conversion", {})
                 spans = result.verbatim_spans
                 smart_partial = result.conversion_status == "SMART_PARTIAL"
+                smart_source_fallback = conversion.get("source_conversion_status") == "SMART_PARTIAL"
+                has_diagnostic_conversion = smart_partial or smart_source_fallback
                 partial_status = "smart_partial" if smart_partial else "partial_raw"
                 record.status = partial_status
                 record.category = result.conversion_status
+                record.source_conversion_status = str(conversion.get("source_conversion_status", ""))
                 record.vocal_absence_confirmed = "no"
                 record.verbatim_span_count = len(spans)
+                record.converted_measures = int(conversion.get("converted_measures", 0))
+                record.raw_preserved_measures = int(conversion.get("raw_preserved_measures", 0))
+                record.resynchronized_segments = int(conversion.get("resynchronized_segments", 0))
+                record.source_music_coverage = float(conversion.get("source_music_coverage", 0.0))
+                record.output_contains_full_source_music = bool(
+                    conversion.get("output_contains_full_source_music", False)
+                )
+                record.duration_known = bool(conversion.get("duration_known", False))
                 source_changes = conversion.get("source_musical_event_changes", {})
                 record.source_events_removed = source_changes.get("removed", 0) if smart_partial else 0
                 record.source_events_changed = source_changes.get("changed", 0) if smart_partial else 0
@@ -960,11 +1006,15 @@ def _audit_one_file(
                         )
                 events_after: dict[str, Any] | None = None
                 partial_score: ParsedScore | None = None
-                if smart_partial:
-                    partial_score, partial_parser, partial_error = _parse_score(result.abc, "strict")
+                diagnostic_prefix_text = result.abc if smart_partial else result.repaired_abc
+                if has_diagnostic_conversion and diagnostic_prefix_text:
+                    partial_score, partial_parser, partial_error = _parse_score(
+                        diagnostic_prefix_text,
+                        "strict",
+                    )
                     if partial_score is not None:
                         events_after = _event_payload(
-                            "smart_partial_converted_prefix",
+                            "verified_diagnostic_prefix",
                             partial_score,
                             partial_parser,
                             record.sha256,
@@ -973,10 +1023,25 @@ def _audit_one_file(
                         )
                     else:
                         validation_error = (
-                            f"SMART_PARTIAL fragment did not pass strict validation: {partial_error}"
+                            f"Smart diagnostic prefix did not pass strict validation: {partial_error}"
                         )
                         LOGGER.error(f"{source_path.name}: {validation_error}")
                         record.error = f"{record.error} {validation_error}".strip()
+                segment_validation: list[dict[str, Any]] = []
+                for segment in result.diagnostic_segments:
+                    segment_score, _, segment_error = _parse_score(str(segment["abc"]), "strict")
+                    segment_validation.append(
+                        {
+                            "segment": int(segment["segment"]),
+                            "status": "accepted" if segment_score is not None else "rejected",
+                            "error": segment_error,
+                        }
+                    )
+                    if segment_score is None:
+                        record.error = (
+                            f"{record.error} Resynchronized diagnostic segment "
+                            f"{segment['segment']} failed strict validation: {segment_error}."
+                        ).strip()
                 span_error = next(
                     (
                         f"Invalid verbatim span in {source_path.name}."
@@ -1000,10 +1065,16 @@ def _audit_one_file(
                     "file": source_path.name,
                     "source_sha256": record.sha256,
                     "conversion_status": result.conversion_status,
+                    "source_conversion_status": record.source_conversion_status,
                     "internal_validator": conversion.get("internal_validator", "not_passed"),
                     "partial_fragment_strict_validation": (
-                        "accepted" if partial_score is not None else "not_run" if not smart_partial else "rejected"
+                        "accepted"
+                        if partial_score is not None
+                        else "not_run"
+                        if not has_diagnostic_conversion
+                        else "rejected"
                     ),
+                    "resynchronized_segments_strict_validation": segment_validation,
                     "independent_yue_checker": upstream_output,
                     "raw_source_preserved": result.abc == source_text,
                     "vocal_absence_confirmed": False,
@@ -1011,8 +1082,18 @@ def _audit_one_file(
                     "source_events_changed": record.source_events_changed,
                     "events_preserved_in_converted_prefix": record.events_preserved,
                     "events_modified_by_smart_candidates": record.events_modified,
-                    "unknown_numeric_outputs_use_zero_sentinel": not smart_partial,
+                    "converted_measures": record.converted_measures,
+                    "raw_preserved_measures": record.raw_preserved_measures,
+                    "resynchronized_segments": record.resynchronized_segments,
+                    "source_music_coverage": record.source_music_coverage,
+                    "output_contains_full_source_music": record.output_contains_full_source_music,
+                    "duration_known": record.duration_known,
+                    "unknown_numeric_outputs_use_zero_sentinel": not record.duration_known,
                     "verbatim_spans": spans,
+                    "diagnostic_segments": [
+                        {key: value for key, value in segment.items() if key != "abc"}
+                        for segment in result.diagnostic_segments
+                    ],
                     "downstream_risk": conversion.get("downstream_risk", "YuE2 may reject raw ABC."),
                     "yue2_runtime_tested": False,
                 }
@@ -1029,18 +1110,26 @@ def _audit_one_file(
                     result.candidate_log,
                     result.conversion_status,
                     events_after,
+                    result.diagnostic_segments,
                 )
                 record.artifact_directory = artifact_directory.relative_to(run_directory).as_posix()
                 record.details = {
                     "baseline_converted": baseline.get(source_path.name),
                     "internal_status": partial_status,
                     "conversion_status": result.conversion_status,
+                    "source_conversion_status": conversion.get("source_conversion_status"),
                     "vocal_absence_confirmed": False,
                     "verbatim_span_count": len(spans),
                     "source_events_removed": record.source_events_removed,
                     "source_events_changed": record.source_events_changed,
                     "events_preserved": record.events_preserved,
                     "events_modified": record.events_modified,
+                    "converted_measures": record.converted_measures,
+                    "raw_preserved_measures": record.raw_preserved_measures,
+                    "resynchronized_segments": record.resynchronized_segments,
+                    "source_music_coverage": record.source_music_coverage,
+                    "output_contains_full_source_music": record.output_contains_full_source_music,
+                    "duration_known": record.duration_known,
                     "independent_checker": upstream_output,
                 }
                 return record
@@ -1137,6 +1226,74 @@ def _audit_one_file(
                         record.duration_drift_seconds = (
                             f"{_score_seconds(output_score) - _score_seconds(repaired_score):+.9f}"
                         )
+                        conversion_details = warnings.get("conversion", {})
+                        source_changes = conversion_details.get("source_musical_event_changes", {})
+                        duration_changes = source_changes.get("duration_changes", [])
+                        vocal_extensions = [
+                            change
+                            for change in duration_changes
+                            if change.get("voice", "").lower() == "vocal"
+                            and Fraction(str(change.get("repaired_duration", "0")))
+                            > Fraction(str(change.get("original_duration", "0")))
+                        ]
+                        record.vocal_duration_extensions = (
+                            len(vocal_extensions)
+                            if result.conversion_status == "SMART_RECOVERED"
+                            else 0
+                        )
+                        output_bars = len(output_score.voices["ins"].measures)
+                        source_reference_score = source_score or extended_score or repaired_score
+                        source_reference = (
+                            "strict_raw"
+                            if source_score is not None
+                            else "extended_raw"
+                            if extended_score is not None
+                            else "repaired_candidate"
+                        )
+                        source_measure_count = len(_build_grid(source_reference_score))
+                        record.added_output_measures = max(0, output_bars - source_measure_count)
+                        silent_intervals = _full_measure_silence_intervals(source_reference_score)
+                        silent_note_hits = [
+                            {
+                                "onset": str(event.onset),
+                                "duration": str(event.duration),
+                                "pitch": event.pitch,
+                                "silence_interval": [str(start), str(end)],
+                            }
+                            for event in output_score.voices["ins"].events
+                            if event.kind == "note"
+                            for start, end in silent_intervals
+                            if event.onset < end and event.onset + event.duration > start
+                        ]
+                        record.notes_in_source_silence = len(silent_note_hits)
+                        expected_ins_notes, _ = _transfer_melody(repaired_score, DEFAULT_MELODY_POLICY)
+                        expected_timeline = Counter(
+                            (event.onset, event.duration, event.pitch)
+                            for event in expected_ins_notes
+                            if event.kind == "note"
+                        )
+                        output_timeline = Counter(
+                            (event.onset, event.duration, event.pitch)
+                            for event in output_score.voices["ins"].events
+                            if event.kind == "note"
+                        )
+                        record.exact_transfer_timeline = (
+                            "exact" if output_timeline == expected_timeline else "different"
+                        )
+                        preservation_errors = []
+                        if record.added_output_measures:
+                            preservation_errors.append(
+                                f"conversion added {record.added_output_measures} output measures"
+                            )
+                        if record.notes_in_source_silence:
+                            preservation_errors.append(
+                                f"conversion placed {record.notes_in_source_silence} notes in source silence"
+                            )
+                        if record.exact_transfer_timeline != "exact":
+                            preservation_errors.append("converted note timeline differs from exact Vocal transfer")
+                        if preservation_errors:
+                            internal_status = "preservation_rejected"
+                            record.error = "; ".join(preservation_errors)
                         strict_equal = (
                             source_score is not None
                             and _score_signature(source_score) == _score_signature(repaired_score)
@@ -1179,6 +1336,8 @@ def _audit_one_file(
                         upstream_accepted = record.upstream_status == "accepted"
                         if internal_status == "accepted" and upstream_accepted:
                             record.status = "accepted"
+                        elif internal_status != "accepted":
+                            record.status = "rejected_internal"
                         else:
                             record.status = "rejected_upstream"
                             record.error = (
@@ -1228,6 +1387,17 @@ def _audit_one_file(
                                 else None,
                                 "repaired_duration_whole_notes": str(_score_end(repaired_score)),
                             },
+                            "musical_preservation": {
+                                "vocal_duration_extensions": vocal_extensions,
+                                "added_output_measures": record.added_output_measures,
+                                "source_full_measure_silence_intervals": [
+                                    [str(start), str(end)] for start, end in silent_intervals
+                                ],
+                                "source_timeline_reference": source_reference,
+                                "notes_in_source_silence": silent_note_hits,
+                                "exact_transfer_timeline": record.exact_transfer_timeline,
+                                "errors": preservation_errors,
+                            },
                             "chords": {
                                 "raw": [
                                     [str(onset), chord]
@@ -1250,6 +1420,8 @@ def _audit_one_file(
                             "offline_suitability": (
                                 "ready_for_further_offline_check"
                                 if record.status == "accepted"
+                                else "musical_preservation_rejected"
+                                if record.status == "rejected_internal"
                                 else "independent_checker_rejected"
                             ),
                             "yue2_runtime_tested": False,
@@ -1320,6 +1492,10 @@ def _audit_one_file(
                             "internal_status": internal_status,
                             "upstream_source_status": upstream_source.get("status"),
                             "upstream_compare_status": upstream_output.get("ins_compare_status"),
+                            "vocal_duration_extensions": vocal_extensions,
+                            "added_output_measures": record.added_output_measures,
+                            "notes_in_source_silence": silent_note_hits,
+                            "exact_transfer_timeline": record.exact_transfer_timeline,
                         }
                         return record
 
@@ -1495,6 +1671,9 @@ def _write_summaries(
     upstream_successes = sum(item.upstream_status == "accepted" for item in records)
     partial_raw_count = sum(item.conversion_status == "PARTIAL_RAW" for item in records)
     smart_partial_count = sum(item.conversion_status == "SMART_PARTIAL" for item in records)
+    smart_partial_fallbacks = [
+        item for item in records if item.details.get("source_conversion_status") == "SMART_PARTIAL"
+    ]
     verbatim_span_count = sum(item.verbatim_span_count for item in records)
     unconfirmed_vocal_count = sum(item.vocal_absence_confirmed == "no" for item in records)
     known_source_events_removed = sum(item.source_events_removed or 0 for item in records)
@@ -1505,6 +1684,12 @@ def _write_summaries(
     original_ins_events_changed = sum(item.ins_changed for item in records)
     events_preserved = sum(item.events_preserved or 0 for item in records)
     events_modified = sum(item.events_modified or 0 for item in records)
+    smart_recovered_records = [item for item in records if item.conversion_status == "SMART_RECOVERED"]
+    duration_extension_cases = [item for item in records if item.vocal_duration_extensions]
+    added_measure_cases = [item for item in records if item.added_output_measures]
+    source_silence_cases = [item for item in records if item.notes_in_source_silence]
+    transfer_mismatch_cases = [item for item in records if item.exact_transfer_timeline == "different"]
+    transfer_checked_count = sum(item.exact_transfer_timeline in {"exact", "different"} for item in records)
     old_status = {
         item.file_name: item.details.get("baseline_converted")
         for item in records
@@ -1530,6 +1715,7 @@ def _write_summaries(
             "independent_checker_successes": upstream_successes,
             "partial_raw_results": partial_raw_count,
             "smart_partial_results": smart_partial_count,
+            "smart_partial_source_fallbacks": len(smart_partial_fallbacks),
             "fully_validated": internal_successes,
             "upstream_validated": upstream_successes,
             "raw_only_results": partial_raw_count,
@@ -1551,6 +1737,42 @@ def _write_summaries(
             ),
             "exact_percent_of_all_files": 100 * categories["EXACT"] / len(records) if records else 0,
         },
+        "smart_partial_source_coverage": {
+            "converted_measures": sum(item.converted_measures for item in smart_partial_fallbacks),
+            "raw_preserved_measures": sum(item.raw_preserved_measures for item in smart_partial_fallbacks),
+            "resynchronized_segments": sum(item.resynchronized_segments for item in smart_partial_fallbacks),
+            "files_output_with_full_source_music": sum(
+                item.output_contains_full_source_music for item in smart_partial_fallbacks
+            ),
+            "files_with_known_duration": sum(item.duration_known for item in smart_partial_fallbacks),
+            "minimum_source_music_coverage": min(
+                (item.source_music_coverage for item in smart_partial_fallbacks),
+                default=0.0,
+            ),
+        },
+        "smart_musical_preservation_audit": {
+            "smart_recovered_files": len(smart_recovered_records),
+            "files_with_vocal_duration_extensions": [
+                {
+                    "file_name": item.file_name,
+                    "changes": item.details.get("vocal_duration_extensions", []),
+                }
+                for item in duration_extension_cases
+            ],
+            "files_with_added_output_measures": [
+                {"file_name": item.file_name, "count": item.added_output_measures}
+                for item in added_measure_cases
+            ],
+            "files_with_notes_inside_source_full_measure_silence": [
+                {
+                    "file_name": item.file_name,
+                    "notes": item.details.get("notes_in_source_silence", []),
+                }
+                for item in source_silence_cases
+            ],
+            "exact_transfer_timeline_checked": transfer_checked_count,
+            "exact_transfer_timeline_mismatches": [item.file_name for item in transfer_mismatch_cases],
+        },
         "baseline_regressions": regressions,
         "baseline_gains": gains,
         "files": [asdict(record) for record in records],
@@ -1562,9 +1784,14 @@ def _write_summaries(
         textwrap.fill(
             f"- `{item.file_name}`: status={item.status}; type={item.category}; "
             f"conversion={item.conversion_status}; spans={item.verbatim_span_count}; "
+            f"converted_measures={item.converted_measures}; raw_measures={item.raw_preserved_measures}; "
+            f"resync={item.resynchronized_segments}; coverage={item.source_music_coverage:.3f}; "
+            f"full_source={item.output_contains_full_source_music}; duration_known={item.duration_known}; "
             f"repairs={item.repair_count}; upstream={item.upstream_status}; "
             f"Ins={item.ins_preservation}, changed={item.ins_changed}; "
             f"Vocal moved={item.vocal_transferred}, blocked={item.vocal_blocked}; "
+            f"Vocal duration extensions={item.vocal_duration_extensions}; added bars={item.added_output_measures}; "
+            f"notes in source silence={item.notes_in_source_silence}; transfer={item.exact_transfer_timeline}; "
             f"drift={item.duration_drift_seconds}s; uncertain={item.musical_uncertainty}; "
             f"artifacts=`{item.artifact_directory}`.",
             width=110,
@@ -1588,6 +1815,7 @@ def _write_summaries(
         f"| Accepted by independent checker | {upstream_successes}/{len(records)} |",
         f"| Independent checker rate | {100 * upstream_successes / len(records):.1f}% |",
         f"| SMART_PARTIAL results | {smart_partial_count} |",
+        f"| Previous SMART_PARTIAL cases now using raw fallback | {len(smart_partial_fallbacks)} |",
         f"| Partial raw fallbacks | {partial_raw_count} |",
         f"| Verbatim spans preserved | {verbatim_span_count} |",
         f"| Known source events preserved | {events_preserved} |",
@@ -1608,6 +1836,83 @@ def _write_summaries(
         f"| FAILED | {categories['FAILED']} |",
         f"| Baseline conversion regressions | {len(regressions)} |",
         f"| Baseline conversion gains | {len(gains)} |",
+        f"| SMART_RECOVERED files checked for musical preservation | {len(smart_recovered_records)} |",
+        f"| SMART files with Vocal duration extensions | {len(duration_extension_cases)} |",
+        f"| Added output measures caused by conversion | {sum(item.added_output_measures for item in records)} |",
+        f"| Notes in source full-measure silence | {sum(item.notes_in_source_silence for item in records)} |",
+        f"| Exact transfer timelines checked | {transfer_checked_count} |",
+        f"| Exact transfer timeline mismatches | {len(transfer_mismatch_cases)} |",
+        "",
+        "## SMART musical preservation audit",
+        "",
+        "The per-file CSV/JSON records count selected Smart duration extensions, converted measures added beyond the",
+        "repaired source, note events overlapping source bars that are full rests in both voices, and exact",
+        "onset/duration/pitch agreement for the Vocal-to-Ins transfer. Raw fallbacks have no converted timeline to",
+        "compare and are marked `unknown`.",
+        "",
+        f"- Smart recovered: {len(smart_recovered_records)} files.",
+        f"- Vocal duration extension cases: {len(duration_extension_cases)}.",
+        f"- Added output measures: {sum(item.added_output_measures for item in records)}.",
+        f"- Notes inside source full-measure silence: {sum(item.notes_in_source_silence for item in records)}.",
+        f"- Exact transfer mismatches: {len(transfer_mismatch_cases)} of {transfer_checked_count} checked files.",
+        "",
+        "### Files with duration extensions",
+        "",
+        *(
+            [
+                f"- `{item.file_name}`: "
+                + "; ".join(
+                    f"{change.get('original_duration')} → {change.get('repaired_duration')} "
+                    f"at {change.get('source_span', {}).get('line')}:{change.get('source_span', {}).get('text')}"
+                    for change in item.details.get("vocal_duration_extensions", [])
+                )
+                for item in duration_extension_cases
+            ]
+            or ["- None."]
+        ),
+        "",
+        "### Files with added measures or notes in source silence",
+        "",
+        *(
+            [
+                f"- `{item.file_name}`: added measures={item.added_output_measures}; "
+                f"notes in silence={item.notes_in_source_silence}."
+                for item in records
+                if item.added_output_measures or item.notes_in_source_silence
+            ]
+            or ["- None."]
+        ),
+        "",
+        "## SMART_PARTIAL source coverage",
+        "",
+        "| Metric | Result |",
+        "|---|---:|",
+        (
+            f"| Converted measures, including diagnostics | "
+            f"{sum(item.converted_measures for item in smart_partial_fallbacks)} |"
+        ),
+        (
+            f"| Raw-preserved source measures | "
+            f"{sum(item.raw_preserved_measures for item in smart_partial_fallbacks)} |"
+        ),
+        (
+            f"| Strictly converted resynchronized segments | "
+            f"{sum(item.resynchronized_segments for item in smart_partial_fallbacks)} |"
+        ),
+        (
+            f"| Files whose main output contains the full source music | "
+            f"{sum(item.output_contains_full_source_music for item in smart_partial_fallbacks)} / "
+            f"{len(smart_partial_fallbacks)} |"
+        ),
+        (
+            f"| Files with known full-score duration | "
+            f"{sum(item.duration_known for item in smart_partial_fallbacks)} / "
+            f"{len(smart_partial_fallbacks)} |"
+        ),
+        (
+            f"| Minimum source music coverage | "
+            f"{min((item.source_music_coverage for item in smart_partial_fallbacks), default=0.0):.3f} |"
+        ),
         "",
         "## Categories",
         "",

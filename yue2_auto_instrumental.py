@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import difflib
 import hashlib
 import importlib
 import json
@@ -233,6 +235,7 @@ class ConversionResult:
     candidate_log: list[dict[str, object]] = field(default_factory=list)
     conversion_status: str = "OK"
     verbatim_spans: list[dict[str, object]] = field(default_factory=list)
+    diagnostic_segments: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -243,6 +246,7 @@ class _SmartTextCandidate:
     category: str
     reason: str
     cost: tuple[int, int, int]
+    details: dict[str, object] = field(default_factory=dict)
 
 
 NOTE_PATTERN = re.compile(
@@ -2985,6 +2989,272 @@ def _score_end(score: ParsedScore) -> Fraction:
     )
 
 
+def _full_measure_silence_intervals(score: ParsedScore) -> list[tuple[Fraction, Fraction]]:
+    """Return aligned source bars covered only by full-measure rests in both voices."""
+    silent_intervals: list[tuple[Fraction, Fraction]] = []
+    for measure in _build_grid(score):
+        start = measure.onset
+        end = start + measure.duration
+        voices_are_silent = True
+        for voice_name in ("vocal", "ins"):
+            voice = score.voices[voice_name]
+            source_measure = next(
+                (
+                    item
+                    for item in voice.measures
+                    if item.onset == start and item.duration == measure.duration
+                ),
+                None,
+            )
+            if source_measure is None:
+                voices_are_silent = False
+                break
+            if any(
+                event.kind == "note"
+                and event.onset < end
+                and event.onset + event.duration > start
+                for event in source_measure.events
+            ):
+                voices_are_silent = False
+                break
+            rest_intervals = sorted(
+                (
+                    max(start, event.onset),
+                    min(end, event.onset + event.duration),
+                )
+                for event in source_measure.events
+                if event.kind == "rest"
+                and event.onset < end
+                and event.onset + event.duration > start
+            )
+            cursor = start
+            for rest_start, rest_end in rest_intervals:
+                if rest_start > cursor:
+                    break
+                cursor = max(cursor, rest_end)
+            if cursor < end:
+                voices_are_silent = False
+                break
+        if voices_are_silent:
+            silent_intervals.append((start, end))
+    return silent_intervals
+
+
+def _event_timeline_signature(event: ScoreEvent) -> tuple[str, Fraction, Fraction, int | None, str]:
+    """Return the musical identity used to compare trusted source timeline events."""
+    return event.kind, event.onset, event.duration, event.pitch, event.chord
+
+
+def _smart_trusted_prefix_snapshot(
+    abc: str,
+    max_repair_units: int,
+) -> dict[str, dict[str, object]]:
+    """Capture completely parsed per-voice bars before Smart repairs a damaged source."""
+    parser = ABCScoreParser("extended", max_repair_units)
+    try:
+        score = parser.parse(abc)
+        voices = score.voices
+        parse_completed = True
+    except ScoreError:
+        voices = parser.partial_state.voices
+        parse_completed = False
+    uncertain_onsets: list[Fraction] = []
+    for observation in parser.short_measures:
+        voice = voices.get(observation.voice)
+        if voice is not None and observation.measure_index < len(voice.measures):
+            uncertain_onsets.append(voice.measures[observation.measure_index].onset)
+    for voice_name, measure_index, _ in parser.pending_overflows:
+        voice = voices.get(voice_name)
+        if voice is not None and measure_index < len(voice.measures):
+            uncertain_onsets.append(voice.measures[measure_index].onset)
+    earliest_uncertain_onset = min(uncertain_onsets, default=None)
+    snapshot: dict[str, dict[str, object]] = {}
+    for voice_name, voice in voices.items():
+        if not voice.measures:
+            continue
+        eligible_indices = set(range(len(voice.measures)))
+        if earliest_uncertain_onset is not None:
+            eligible_indices = {
+                index
+                for index in eligible_indices
+                if voice.measures[index].onset + voice.measures[index].duration
+                <= earliest_uncertain_onset
+            }
+        if not eligible_indices:
+            continue
+        trusted_measure_count = max(eligible_indices) + 1
+        endpoint = voice.measures[trusted_measure_count - 1].onset + voice.measures[
+            trusted_measure_count - 1
+        ].duration
+        pending_tie_at_end = any(
+            event.kind == "note"
+            and event.tied_after
+            and event.onset + event.duration == endpoint
+            for event in voice.events
+            if event.measure_index < trusted_measure_count
+        )
+        resolved_voice = copy.deepcopy(voice)
+        ABCScoreParser("extended", max_repair_units)._resolve_ties(resolved_voice)
+        events = [
+            event
+            for event in resolved_voice.events
+            if event.kind in {"note", "rest", "chord"}
+            and (event.onset < endpoint if event.kind == "chord" else event.onset + event.duration <= endpoint)
+            and not (
+                pending_tie_at_end
+                and event.kind == "note"
+                and event.onset + event.duration == endpoint
+            )
+        ]
+        snapshot[voice_name] = {
+            "end": endpoint,
+            "grid": [
+                (item.onset, item.duration, item.meter, item.key)
+                for item in voice.measures[:trusted_measure_count]
+            ],
+            "events": Counter(_event_timeline_signature(event) for event in events),
+            "complete": parse_completed,
+        }
+    return snapshot
+
+
+def _trusted_prefix_mismatch(
+    candidate_score: ParsedScore,
+    snapshot: dict[str, dict[str, object]],
+) -> str | None:
+    """Explain whether a candidate changed a complete prefix from the original source."""
+    for voice_name, expected in snapshot.items():
+        voice = candidate_score.voices.get(voice_name)
+        if voice is None:
+            return f"Smart candidate removed the trusted {voice_name} voice."
+        expected_grid = expected["grid"]
+        assert isinstance(expected_grid, list)
+        actual_grid = [
+            (item.onset, item.duration, item.meter, item.key)
+            for item in voice.measures[:len(expected_grid)]
+        ]
+        if actual_grid != expected_grid:
+            return f"Smart candidate changed the trusted {voice_name} measure grid."
+        end = expected["end"]
+        assert isinstance(end, Fraction)
+        actual_events = Counter(
+            _event_timeline_signature(event)
+            for event in voice.events
+            if event.kind in {"note", "rest", "chord"}
+            and (event.onset < end if event.kind == "chord" else event.onset + event.duration <= end)
+        )
+        expected_events = expected["events"]
+        assert isinstance(expected_events, Counter)
+        if actual_events != expected_events:
+            return f"Smart candidate changed trusted {voice_name} events before {end}."
+    return None
+
+
+def _remap_smart_patch_details(
+    details: dict[str, object],
+    original_abc: str,
+    candidate_abc: str,
+) -> dict[str, object]:
+    """Map a Smart repair span back to the exact token in the original ABC source."""
+    remapped = copy.deepcopy(details)
+    change = remapped.get("duration_change")
+    if not isinstance(change, dict):
+        return remapped
+    span = change.get("source_span")
+    if not isinstance(span, dict):
+        return remapped
+    start = int(span.get("start_offset", -1))
+    end = int(span.get("end_offset", -1))
+    if start < 0 or end < start or end > len(candidate_abc):
+        return remapped
+    matcher = difflib.SequenceMatcher(a=original_abc, b=candidate_abc, autojunk=True)
+    overlapping = [
+        (tag, original_start, original_end, candidate_start, candidate_end)
+        for tag, original_start, original_end, candidate_start, candidate_end in matcher.get_opcodes()
+        if candidate_start < end and candidate_end > start
+    ]
+    exact_match = next(
+        (
+            (original_start + start - candidate_start, original_start + end - candidate_start)
+            for tag, original_start, original_end, candidate_start, candidate_end in overlapping
+            if tag == "equal" and candidate_start <= start and end <= candidate_end
+        ),
+        None,
+    )
+    if exact_match is not None:
+        original_start, original_end = exact_match
+    elif overlapping:
+        original_start = min(item[1] for item in overlapping)
+        original_end = max(item[2] for item in overlapping)
+    else:
+        return remapped
+    source_token = original_abc[original_start:original_end]
+    source_line_number = original_abc.count("\n", 0, original_start) + 1
+    span.update(
+        {
+            "start_offset": original_start,
+            "end_offset": original_end,
+            "line": source_line_number,
+            "text": source_token,
+        }
+    )
+    voice_name = str(change.get("voice", "")).lower()
+    original_duration = _source_note_duration(original_abc, original_start, voice_name)
+    if original_duration is not None:
+        change["original_duration"] = str(original_duration)
+    return remapped
+
+
+def _source_note_duration(abc: str, offset: int, voice_name: str) -> Fraction | None:
+    """Read the source note length active at a duration-repair token offset."""
+    line_index = abc.count("\n", 0, offset)
+    lines = abc.splitlines()
+    if not 0 <= line_index < len(lines):
+        return None
+    parser = ABCScoreParser("extended", DEFAULT_MAX_REPAIR_UNITS)
+    try:
+        headers, header_end = parser._read_header(lines)
+        note_length = parser._parse_note_length(headers["L"])
+    except (ScoreError, KeyError):
+        return None
+    active_voice: str | None = None
+    for line in lines[header_end + 1:line_index + 1]:
+        voice_match = VOICE_PATTERN.fullmatch(line.strip())
+        if voice_match is not None:
+            token = voice_match.group(1).lower()
+            active_voice = token if token in {"vocal", "ins"} else VOICE_ALIASES.get(token)
+            continue
+        if active_voice != voice_name:
+            continue
+        field_match = BODY_FIELD_PREFIX_PATTERN.match(line.strip())
+        if field_match is None or field_match.group(1) != "L":
+            continue
+        try:
+            note_length = parser._parse_note_length(field_match.group(2))
+        except ScoreError:
+            return None
+    line_start = abc.rfind("\n", 0, offset) + 1
+    line_end = abc.find("\n", offset)
+    source_line = abc[line_start:] if line_end < 0 else abc[line_start:line_end]
+    code = source_line.partition("%")[0]
+    token_offset = offset - line_start
+    token_match = next(
+        (match for match in NOTE_PATTERN.finditer(code) if match.start() == token_offset),
+        None,
+    )
+    if token_match is None:
+        return None
+    match = NOTE_PATTERN.fullmatch(token_match.group())
+    if match is None:
+        return None
+    try:
+        duration = note_length * _parse_fraction(match.group("length"))
+    except ScoreError:
+        return None
+    dots = len(match.group("dots"))
+    return duration * Fraction((2 ** (dots + 1)) - 1, 2**dots)
+
+
 def _score_seconds(score: ParsedScore) -> float:
     """Integrate score duration across all supported tempo changes."""
     end = _score_end(score)
@@ -3016,6 +3286,8 @@ def _verify_result(
     original_ins: list[tuple[Fraction, Fraction, int, bool, str]],
     original_chords: list[tuple[Fraction, str]],
     preserve_ins: bool,
+    source_score: ParsedScore | None = None,
+    expected_ins_notes: list[ScoreEvent] | None = None,
 ) -> None:
     """Reparse output and enforce the no-vocal and Ins-preservation invariants."""
     verified = ABCScoreParser("strict", max_repair_units).parse(abc)
@@ -3042,6 +3314,20 @@ def _verify_result(
         raise ScoreError("Final score changed Vocal chord symbols or their timing.")
     ins_notes = [event for event in verified.voices["ins"].events if event.kind == "note"]
     _assert_monophonic(ins_notes, "Ins")
+    if expected_ins_notes is not None:
+        expected_timeline = Counter(
+            (event.onset, event.duration, event.pitch)
+            for event in expected_ins_notes
+            if event.kind == "note"
+        )
+        actual_timeline = Counter(
+            (event.onset, event.duration, event.pitch)
+            for event in ins_notes
+        )
+        if actual_timeline != expected_timeline:
+            raise ScoreError(
+                "Final Ins onset, duration, and pitch do not exactly match the source-preserving transfer."
+            )
     if preserve_ins:
         final_ins = Counter(
             (event.onset, event.duration, event.pitch or 0, event.tied_after, event.spelling)
@@ -3049,6 +3335,21 @@ def _verify_result(
         )
         if Counter(original_ins) - final_ins:
             raise ScoreError("Final score changed an original Ins note under instrumental_priority.")
+    if source_score is not None:
+        source_grid = _build_grid(source_score)
+        verified_grid = _build_grid(verified)
+        source_grid_end = source_grid[-1].onset + source_grid[-1].duration
+        verified_grid_end = verified_grid[-1].onset + verified_grid[-1].duration
+        if verified_grid_end != source_grid_end:
+            raise ScoreError("Final score duration differs from the parsed source timeline.")
+        for start, end in _full_measure_silence_intervals(source_score):
+            if any(
+                event.onset < end and event.onset + event.duration > start
+                for event in ins_notes
+            ):
+                raise ScoreError(
+                    f"Final Ins contains a sounding note in source full-measure silence [{start}, {end})."
+                )
 
 
 def _convert_abc_checked(
@@ -3149,7 +3450,15 @@ def _convert_abc_checked(
         )
     )
     transfer_stats["ins_preservation_verified"] = int(preserve_ins)
-    _verify_result(converted, max_repair_units, original_ins, original_chords, preserve_ins)
+    _verify_result(
+        converted,
+        max_repair_units,
+        original_ins,
+        original_chords,
+        preserve_ins,
+        source_score=score,
+        expected_ins_notes=instrumental_notes,
+    )
 
     max_duration = float(
         max(
@@ -3247,13 +3556,20 @@ class _SmartRecoveryStrategy:
                 "time_limit_seconds": MAX_SMART_SECONDS,
             }
         ]
-        beam: list[tuple[str, tuple[str, ...], tuple[int, int, int]]] = [(abc, (), (0, 0, 0))]
+        trusted_prefix = _smart_trusted_prefix_snapshot(abc, self.max_repair_units)
+        beam: list[
+            tuple[str, tuple[str, ...], tuple[int, int, int], tuple[dict[str, object], ...]]
+        ] = [(abc, (), (0, 0, 0), ())]
         seen = {abc}
         attempts = 0
         for depth in range(MAX_SMART_DEPTH):
-            next_beam: list[tuple[str, tuple[str, ...], tuple[int, int, int]]] = []
-            successes: list[tuple[tuple[int, ...], ConversionResult, list[str]]] = []
-            for current_text, applied, total_cost in beam:
+            next_beam: list[
+                tuple[str, tuple[str, ...], tuple[int, int, int], tuple[dict[str, object], ...]]
+            ] = []
+            successes: list[
+                tuple[tuple[int, ...], ConversionResult, list[str], list[dict[str, object]]]
+            ] = []
+            for current_text, applied, total_cost, applied_details in beam:
                 if time.perf_counter() - started >= MAX_SMART_SECONDS:
                     break
                 parser = ABCScoreParser("extended", self.max_repair_units)
@@ -3287,6 +3603,8 @@ class _SmartRecoveryStrategy:
                     attempts += 1
                     candidate_id = f"smart-{attempts:03d}"
                     reasons = applied + (proposal.reason,)
+                    patch_details = _remap_smart_patch_details(proposal.details, abc, current_text)
+                    selected_details = applied_details + ((patch_details,) if patch_details else ())
                     cost = tuple(left + right for left, right in zip(total_cost, proposal.cost))
                     try:
                         result = _convert_abc_checked(
@@ -3307,12 +3625,13 @@ class _SmartRecoveryStrategy:
                                 "status": "rejected",
                                 "reason": str(exc),
                                 "patch": proposal.reason,
+                                "patch_details": patch_details,
                                 "patch_cost": list(proposal.cost),
                                 "changed_character_count": _changed_character_count(current_text, proposal.text),
                             }
                         )
                         if depth + 1 < MAX_SMART_DEPTH:
-                            next_beam.append((proposal.text, reasons, cost))
+                            next_beam.append((proposal.text, reasons, cost, selected_details))
                         continue
                     except Exception as exc:
                         LOGGER.error(
@@ -3328,6 +3647,7 @@ class _SmartRecoveryStrategy:
                                 "status": "error",
                                 "reason": str(exc),
                                 "patch": proposal.reason,
+                                "patch_details": patch_details,
                             }
                         )
                         continue
@@ -3336,6 +3656,22 @@ class _SmartRecoveryStrategy:
                     try:
                         candidate_parser = ABCScoreParser("extended", self.max_repair_units)
                         candidate_score = candidate_parser.parse(proposal.text)
+                        prefix_mismatch = _trusted_prefix_mismatch(candidate_score, trusted_prefix)
+                        if prefix_mismatch:
+                            candidate_log.append(
+                                {
+                                    "type": "smart_candidate",
+                                    "candidate_id": candidate_id,
+                                    "depth": depth + 1,
+                                    "category": proposal.category,
+                                    "status": "rejected",
+                                    "reason": prefix_mismatch,
+                                    "patch": proposal.reason,
+                                    "patch_details": patch_details,
+                                    "patch_cost": list(proposal.cost),
+                                }
+                            )
+                            continue
                         vocal_grid = [
                             (item.onset, item.duration, item.meter, item.key)
                             for item in candidate_score.voices["vocal"].measures
@@ -3371,7 +3707,7 @@ class _SmartRecoveryStrategy:
                         cost[1],
                         cost[2],
                     )
-                    successes.append((validation_score, result, list(reasons)))
+                    successes.append((validation_score, result, list(reasons), list(selected_details)))
                     candidate_log.append(
                         {
                             "type": "smart_candidate",
@@ -3381,6 +3717,7 @@ class _SmartRecoveryStrategy:
                             "status": "accepted",
                             "reason": "Internal strict serialization validation passed.",
                             "patch": proposal.reason,
+                            "patch_details": patch_details,
                             "patch_cost": list(proposal.cost),
                             "validation_score": list(validation_score),
                         }
@@ -3388,8 +3725,14 @@ class _SmartRecoveryStrategy:
                 if attempts >= MAX_SMART_CANDIDATES or time.perf_counter() - started >= MAX_SMART_SECONDS:
                     break
             if successes:
-                _, result, reasons = min(successes, key=lambda item: item[0])
-                self._mark_smart_recovered(result, candidate_log, reasons, attempts)
+                _, result, reasons, selected_details = min(successes, key=lambda item: item[0])
+                self._mark_smart_recovered(
+                    result,
+                    candidate_log,
+                    reasons,
+                    attempts,
+                    selected_details,
+                )
                 return result
             next_beam.sort(key=lambda item: (len(item[1]), item[2], item[0]))
             beam = next_beam[:MAX_SMART_BEAM_WIDTH]
@@ -3434,6 +3777,7 @@ class _SmartRecoveryStrategy:
         candidate_log: list[dict[str, object]],
         reasons: list[str],
         attempts: int,
+        selected_details: list[dict[str, object]],
     ) -> None:
         """Mark a candidate as fully recovered and attach its search evidence."""
         result.conversion_status = "SMART_RECOVERED"
@@ -3446,6 +3790,11 @@ class _SmartRecoveryStrategy:
             if "extend the last tied note" in reason.lower()
             or "shorten the crossing note" in reason.lower()
         )
+        duration_changes = [
+            item["duration_change"]
+            for item in selected_details
+            if isinstance(item.get("duration_change"), dict)
+        ]
         result.diagnostics.extend(
             Diagnostic(
                 "warning",
@@ -3471,6 +3820,7 @@ class _SmartRecoveryStrategy:
                     **conversion.get("source_musical_event_changes", {}),
                     "removed": 0,
                     "events_modified": event_modifications,
+                    "duration_changes": duration_changes,
                     "event_change_basis": "selected duration hypotheses; no event deletion is proposed",
                 },
                 "raw_source_preserved": False,
@@ -3492,10 +3842,16 @@ class _SmartRecoveryStrategy:
         candidates: list[_SmartTextCandidate] = []
         seen: set[str] = set()
 
-        def add(text: str, category: str, reason: str, cost: tuple[int, int, int]) -> None:
+        def add(
+            text: str,
+            category: str,
+            reason: str,
+            cost: tuple[int, int, int],
+            details: dict[str, object] | None = None,
+        ) -> None:
             if text != abc and text not in seen:
                 seen.add(text)
-                candidates.append(_SmartTextCandidate(text, category, reason, cost))
+                candidates.append(_SmartTextCandidate(text, category, reason, cost, details or {}))
 
         lines = abc.splitlines()
         newline = "\r\n" if "\r\n" in abc else "\n"
@@ -3503,9 +3859,9 @@ class _SmartRecoveryStrategy:
         candidates.extend(self._quote_candidates(abc, lines, newline))
         candidates.extend(self._metadata_candidates(abc, lines, newline))
         for candidate in self._tied_duration_candidates(abc, parser):
-            add(candidate.text, candidate.category, candidate.reason, candidate.cost)
+            add(candidate.text, candidate.category, candidate.reason, candidate.cost, candidate.details)
         for candidate in self._overflow_candidates(abc, parser):
-            add(candidate.text, candidate.category, candidate.reason, candidate.cost)
+            add(candidate.text, candidate.category, candidate.reason, candidate.cost, candidate.details)
         for candidate in self._barline_candidates(abc, parser, lines, newline):
             add(candidate.text, candidate.category, candidate.reason, candidate.cost)
         candidates.extend(self._chord_candidates(abc, lines, newline))
@@ -3825,10 +4181,11 @@ class _SmartRecoveryStrategy:
         )
         absolute_start = line.find(code) + segment_start + token.start
         absolute_end = absolute_start + len(token.raw)
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        source_offset = sum(len(item) + len(newline) for item in lines[:record.line_index]) + absolute_start
         candidate_line = line[:absolute_start] + replacement + line[absolute_end:]
         repaired = list(lines)
         repaired[record.line_index] = candidate_line
-        newline = "\r\n" if "\r\n" in abc else "\n"
         new_text = newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else "")
         return [
             _SmartTextCandidate(
@@ -3836,6 +4193,22 @@ class _SmartRecoveryStrategy:
                 category,
                 f"{reason_prefix} by {delta} whole-note units on source line {record.line_index + 1}.",
                 (2, len(replacement) - len(token.raw), 1),
+                {
+                    "duration_change": {
+                        "voice": record.voice,
+                        "original_duration": str(old_duration),
+                        "repaired_duration": str(old_duration + delta),
+                        "reason": (
+                            f"{reason_prefix} by {delta} whole-note units to complete the source measure."
+                        ),
+                        "source_span": {
+                            "start_offset": source_offset,
+                            "end_offset": source_offset + len(token.raw),
+                            "line": record.line_index + 1,
+                            "text": token.raw,
+                        },
+                    }
+                },
             )
         ]
 
@@ -3881,9 +4254,10 @@ class _SmartRecoveryStrategy:
         )
         absolute_start = line.find(code) + segment_start + token.start
         absolute_end = absolute_start + len(token.raw)
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        source_offset = sum(len(item) + len(newline) for item in lines[:record.line_index]) + absolute_start
         repaired = list(lines)
         repaired[record.line_index] = line[:absolute_start] + replacement + line[absolute_end:]
-        newline = "\r\n" if "\r\n" in abc else "\n"
         new_text = newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else "")
         return [
             _SmartTextCandidate(
@@ -3891,6 +4265,20 @@ class _SmartRecoveryStrategy:
                 category,
                 f"{reason} on source line {record.line_index + 1}.",
                 (3, len(replacement) - len(token.raw), 1),
+                {
+                    "duration_change": {
+                        "voice": record.voice,
+                        "original_duration": str(old_duration),
+                        "repaired_duration": str(new_duration),
+                        "reason": reason,
+                        "source_span": {
+                            "start_offset": source_offset,
+                            "end_offset": source_offset + len(token.raw),
+                            "line": record.line_index + 1,
+                            "text": token.raw,
+                        },
+                    }
+                },
             )
         ]
 
@@ -4114,6 +4502,194 @@ def _source_measure_span(code: str, measure_index: int) -> tuple[int, int] | Non
     if measure_index < 0 or measure_index >= len(spans):
         return None
     return spans[measure_index]
+
+
+def _source_measure_counts(abc: str) -> dict[str, int]:
+    """Count source measure fragments independently in the Vocal and Ins voices."""
+    lines = abc.splitlines()
+    voice_music: dict[str, list[str]] = {"vocal": [], "ins": []}
+    active_voice: str | None = None
+    for line in lines:
+        voice_match = VOICE_PATTERN.fullmatch(line.strip())
+        if voice_match is not None:
+            token = voice_match.group(1).lower()
+            active_voice = token if token in voice_music else VOICE_ALIASES.get(token)
+            continue
+        if active_voice is None:
+            continue
+        code = line.partition("%")[0].strip()
+        field_match = BODY_FIELD_PREFIX_PATTERN.match(code)
+        if not code or field_match is not None:
+            continue
+        voice_music[active_voice].append(code)
+    return {
+        voice_name: len(_source_measure_spans(" ".join(lines_for_voice)))
+        for voice_name, lines_for_voice in voice_music.items()
+    }
+
+
+def _resynchronized_segment_candidates(
+    abc: str,
+    header_lines: list[str],
+    after_lines: dict[str, int],
+    melody_policy: MelodyPolicy,
+    max_repair_units: int,
+    lyrics_mode: LyricsMode,
+    candidate_log: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Strictly convert later voice segments that restart at matching meter declarations."""
+    lines = abc.splitlines()
+    voice_lines: dict[str, list[tuple[int, str]]] = {"vocal": [], "ins": []}
+    meter_events: dict[str, list[tuple[int, int, tuple[int, int], dict[str, str]]]] = {
+        "vocal": [],
+        "ins": [],
+    }
+    try:
+        headers, _ = ABCScoreParser("extended", max_repair_units)._read_header(lines)
+        base_context = {name: headers[name] for name in ("M", "L", "Q", "K")}
+    except (ScoreError, KeyError):
+        candidate_log.append(
+            {"type": "smart_resynchronization", "status": "rejected", "reason": "Invalid ABC header."}
+        )
+        return []
+
+    contexts = {name: base_context.copy() for name in voice_lines}
+    active_voice: str | None = None
+    for line_index, line in enumerate(lines):
+        voice_match = VOICE_PATTERN.fullmatch(line.strip())
+        if voice_match is not None:
+            token = voice_match.group(1).lower()
+            active_voice = token if token in voice_lines else VOICE_ALIASES.get(token)
+            continue
+        if active_voice is None:
+            continue
+        voice_lines[active_voice].append((line_index, line))
+        field_match = BODY_FIELD_PREFIX_PATTERN.match(line.strip())
+        if field_match is None:
+            continue
+        field_name, field_value = field_match.groups()
+        if field_name not in contexts[active_voice]:
+            continue
+        contexts[active_voice][field_name] = field_value.strip()
+        if field_name != "M" or line_index <= after_lines[active_voice]:
+            continue
+        try:
+            meter = _parse_meter(field_value)
+        except ScoreError:
+            continue
+        entry_index = len(voice_lines[active_voice]) - 1
+        meter_events[active_voice].append(
+            (line_index, entry_index, meter, contexts[active_voice].copy())
+        )
+
+    vocal_events = meter_events["vocal"]
+    ins_events = meter_events["ins"]
+    pairs: list[tuple[tuple[int, int, tuple[int, int], dict[str, str]], ...]] = []
+    next_ins = 0
+    for vocal_event in vocal_events:
+        while next_ins < len(ins_events) and ins_events[next_ins][2] != vocal_event[2]:
+            next_ins += 1
+        if next_ins >= len(ins_events):
+            break
+        pairs.append((vocal_event, ins_events[next_ins]))
+        next_ins += 1
+
+    diagnostic_segments: list[dict[str, object]] = []
+    for segment_index, (vocal_event, ins_event) in enumerate(pairs, start=1):
+        vocal_context = vocal_event[3]
+        ins_context = ins_event[3]
+        if any(vocal_context[name] != ins_context[name] for name in ("M", "L", "Q", "K")):
+            candidate_log.append(
+                {
+                    "type": "smart_resynchronization",
+                    "segment": segment_index,
+                    "status": "rejected",
+                    "reason": "Voice metadata differs at the proposed meter boundary.",
+                }
+            )
+            continue
+
+        source_parts: dict[str, list[str]] = {}
+        source_line_ranges: dict[str, list[int]] = {}
+        for voice_name, event in (("vocal", vocal_event), ("ins", ins_event)):
+            entries = voice_lines[voice_name]
+            next_event = next(
+                (item for item in meter_events[voice_name] if item[1] > event[1]),
+                None,
+            )
+            end_entry = next_event[1] if next_event is not None else len(entries)
+            selected = entries[event[1]:end_entry]
+            if not selected:
+                source_parts[voice_name] = []
+                source_line_ranges[voice_name] = []
+                continue
+            source_parts[voice_name] = [item[1] for item in selected]
+            source_line_ranges[voice_name] = [selected[0][0] + 1, selected[-1][0] + 1]
+
+        if not source_parts["vocal"] or not source_parts["ins"]:
+            continue
+        context_header: list[str] = []
+        for line in header_lines:
+            field_match = BODY_FIELD_PREFIX_PATTERN.match(line.strip())
+            if field_match is not None and field_match.group(1) in vocal_context:
+                field_name = field_match.group(1)
+                prefix = line[:line.find(field_match.group(2))]
+                context_header.append(f"{prefix}{vocal_context[field_name]}")
+            else:
+                context_header.append(line)
+        segment_lines = [
+            *context_header,
+            "V: Vocal",
+            *source_parts["vocal"],
+            "V: Ins",
+            *source_parts["ins"],
+        ]
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        segment_abc = newline.join(segment_lines) + newline
+        try:
+            converted = _convert_abc_checked(
+                segment_abc,
+                "strict",
+                melody_policy,
+                lyrics_mode,
+                DEFAULT_PADDING_SECONDS,
+                max_repair_units,
+            )
+        except ScoreError as exc:
+            candidate_log.append(
+                {
+                    "type": "smart_resynchronization",
+                    "segment": segment_index,
+                    "status": "rejected",
+                    "meter": f"{vocal_event[2][0]}/{vocal_event[2][1]}",
+                    "source_line_ranges": source_line_ranges,
+                    "reason": str(exc),
+                }
+            )
+            continue
+        if converted.bars <= 0:
+            continue
+        diagnostic_segments.append(
+            {
+                "segment": segment_index,
+                "meter": f"{vocal_event[2][0]}/{vocal_event[2][1]}",
+                "source_line_ranges": source_line_ranges,
+                "converted_measures": converted.bars,
+                "abc": converted.abc,
+            }
+        )
+        candidate_log.append(
+            {
+                "type": "smart_resynchronization",
+                "segment": segment_index,
+                "status": "converted_diagnostic",
+                "meter": f"{vocal_event[2][0]}/{vocal_event[2][1]}",
+                "source_line_ranges": source_line_ranges,
+                "converted_measures": converted.bars,
+                "reason": "Matching meter boundary; isolated segment passed strict conversion.",
+            }
+        )
+    return diagnostic_segments
 
 
 def _smart_partial_result(
@@ -4382,13 +4958,6 @@ def _smart_partial_result(
     )
     spelling_diagnostics: list[Diagnostic] = []
     try:
-        repaired = _render_score(
-            score,
-            [event for event in voices["ins"].events if event.kind == "note"],
-            [event for event in voices["vocal"].events if event.kind == "note"],
-            section_comment_overrides,
-            add_fallback_section_comments,
-        )
         instrumental_notes, transfer = _transfer_melody(score, melody_policy)
         converted = _render_score(
             score,
@@ -4412,6 +4981,8 @@ def _smart_partial_result(
                 if event.kind == "chord"
             ],
             melody_policy == "instrumental_priority",
+            source_score=score,
+            expected_ins_notes=instrumental_notes,
         )
     except ScoreError as exc:
         reject_partial(f"The aligned prefix could not be serialized safely: {exc}")
@@ -4474,49 +5045,31 @@ def _smart_partial_result(
     modified_events = sum(
         item.get("status") == "accepted" for item in candidate_log if item.get("type") == "smart_candidate"
     )
-    conversion = {
-        "conversion_status": "SMART_PARTIAL",
-        "mode": "smart",
-        "recovery_strategy": "aligned_complete_measure_prefix",
-        "raw_source_preserved": False,
-        "unprocessed_spans": spans,
-        "source_musical_event_changes": {
-            "removed": 0,
-            "changed": 0,
-            "events_preserved": sum(
-                event.kind in ("note", "chord")
-                for voice in voices.values()
-                for event in voice.events
-            ),
-            "events_modified": modified_events,
-            "note": "The prefix was converted; remaining source blocks were retained verbatim in spans.",
-        },
-        "internal_validator": "partial_fragment_passed",
-        "independent_checker": "not_run",
-        "vocal_absence_confirmed": False,
-        "vocal_notes_in_preserved_prefix": vocal_count,
-        "yue2_runtime_tested": False,
-        "unknown_numeric_outputs_use_zero_sentinel": False,
-        "downstream_risk": "Only the aligned prefix was converted; retained source spans may contain Vocal notes.",
+    prefix_end_lines = {
+        voice_name: measure_source_lines[voice_name].get(common_count - 1, -1)
+        for voice_name in ("vocal", "ins")
     }
-    warnings = json.dumps(
-        {
-            "diagnostics": [item.to_dict() for item in [*lyrics_diagnostics, *spelling_diagnostics]],
-            "transfer": transfer,
-            "conversion": conversion,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
+    diagnostic_segments = _resynchronized_segment_candidates(
+        abc,
+        header_lines,
+        prefix_end_lines,
+        melody_policy,
+        max_repair_units,
+        lyrics_mode,
+        candidate_log,
     )
-    grid = _build_grid(score)
-    bpm = score.tempos[0].bpm
+    source_measure_count = max(_source_measure_counts(abc).values(), default=0)
+    converted_measures = common_count + sum(
+        int(segment["converted_measures"]) for segment in diagnostic_segments
+    )
     candidate_log = [
         *candidate_log,
         {
             "type": "smart_partial",
-            "status": "accepted",
-            "reason": reason,
-            "aligned_measures": common_count,
+            "status": "raw_fallback_with_diagnostics",
+            "reason": "The complete source is the only safe main output; converted sections are diagnostics.",
+            "aligned_prefix_measures": common_count,
+            "resynchronized_segments": len(diagnostic_segments),
             "verbatim_spans": len(spans),
         },
     ]
@@ -4524,27 +5077,65 @@ def _smart_partial_result(
         "warning",
         "score",
         common_count,
-        "SMART_PARTIAL",
-        "Only the aligned, complete prefix could be converted.",
-        "Keep the remaining source spans verbatim and do not claim full validation or vocal absence.",
+        "PARTIAL_RAW",
+        "The complete source was preserved because a hybrid score could not be assembled safely.",
+        "Use the strictly validated prefix and resynchronized segments as diagnostic artifacts only.",
         "smart_partial",
     )
-    return ConversionResult(
-        converted,
-        lyrics,
-        float(max(MIN_MAX_DURATION_SECONDS, min(MAX_DURATION_SECONDS, math.ceil(score_seconds)))),
-        float(score_seconds),
-        len(grid),
-        float(bpm),
-        f"SMART_PARTIAL | {len(grid)} aligned measures converted; Vocal absence is unconfirmed.",
-        warnings,
-        modified_events,
-        [diagnostic],
-        repaired,
+    result = _partial_raw_result(
+        abc,
+        "smart",
+        reason,
         candidate_log,
-        "SMART_PARTIAL",
-        spans,
+        lyrics_mode,
     )
+    result.repaired_abc = converted
+    result.diagnostic_segments = diagnostic_segments
+    result.repair_count = modified_events
+    result.diagnostics.append(diagnostic)
+    result.info += (
+        f"; {common_count} aligned measures validated for diagnostics; "
+        f"{len(diagnostic_segments)} later segments independently converted; "
+        "main ABC preserves the complete source"
+    )
+    warning_details = json.loads(result.warnings) if result.warnings else {}
+    warning_details["transfer"] = transfer
+    warning_details.setdefault("diagnostics", []).extend(
+        item.to_dict() for item in [*spelling_diagnostics, diagnostic]
+    )
+    conversion = warning_details.get("conversion", {})
+    conversion.update(
+        {
+            "conversion_status": "PARTIAL_RAW",
+            "source_conversion_status": "SMART_PARTIAL",
+            "recovery_strategy": "full_source_with_validated_diagnostic_segments",
+            "converted_measures": converted_measures,
+            "raw_preserved_measures": source_measure_count,
+            "resynchronized_segments": len(diagnostic_segments),
+            "source_music_coverage": 1.0,
+            "output_contains_full_source_music": True,
+            "duration_known": False,
+            "verified_diagnostic_prefix": bool(converted),
+            "diagnostic_segments": [
+                {
+                    key: value
+                    for key, value in segment.items()
+                    if key != "abc"
+                }
+                for segment in diagnostic_segments
+            ],
+            "internal_validator": "diagnostic_segments_strictly_validated; full source retained raw",
+            "vocal_absence_confirmed": False,
+            "vocal_notes_in_preserved_prefix": vocal_count,
+            "downstream_risk": (
+                "The complete raw ABC may contain Vocal notes or unsupported syntax; "
+                "diagnostic conversions do not validate the main output."
+            ),
+        }
+    )
+    warning_details["conversion"] = conversion
+    result.warnings = json.dumps(warning_details, ensure_ascii=False, sort_keys=True)
+    return result
 
 
 def _partial_raw_result(
@@ -4606,6 +5197,12 @@ def _partial_raw_result(
                 "mode": mode,
                 "raw_source_preserved": source_preserved,
                 "unprocessed_spans": [span],
+                "converted_measures": 0,
+                "raw_preserved_measures": max(_source_measure_counts(abc).values(), default=0),
+                "resynchronized_segments": 0,
+                "source_music_coverage": 1.0,
+                "output_contains_full_source_music": True,
+                "duration_known": numeric_outputs_known,
                 "source_musical_event_changes": {
                     "removed": 0,
                     "changed": 0,
@@ -4794,10 +5391,18 @@ def _save_debug_artifacts(abc: str, result: ConversionResult) -> Path:
         "transfer": warning_details.get("transfer", {}),
         "conversion": warning_details.get("conversion", {}),
         "verbatim_spans": result.verbatim_spans,
+        "diagnostic_segments": [
+            {key: value for key, value in segment.items() if key != "abc"}
+            for segment in result.diagnostic_segments
+        ],
     }
     validation = {
         "status": result.conversion_status,
         "category": result.conversion_status,
+        "source_conversion_status": warning_details.get("conversion", {}).get(
+            "source_conversion_status",
+            "",
+        ),
         "internal_validator": (
             warning_details.get("conversion", {}).get("internal_validator", "not_passed")
             if partial
@@ -4818,6 +5423,15 @@ def _save_debug_artifacts(abc: str, result: ConversionResult) -> Path:
             if partial
             else True
         ),
+        "converted_measures": warning_details.get("conversion", {}).get("converted_measures", 0),
+        "raw_preserved_measures": warning_details.get("conversion", {}).get("raw_preserved_measures", 0),
+        "resynchronized_segments": warning_details.get("conversion", {}).get("resynchronized_segments", 0),
+        "source_music_coverage": warning_details.get("conversion", {}).get("source_music_coverage", 0.0),
+        "output_contains_full_source_music": warning_details.get("conversion", {}).get(
+            "output_contains_full_source_music",
+            False,
+        ),
+        "duration_known": warning_details.get("conversion", {}).get("duration_known", False),
     }
     files = {
         "source.abc": abc,
@@ -4826,6 +5440,11 @@ def _save_debug_artifacts(abc: str, result: ConversionResult) -> Path:
     }
     if result.conversion_status == "PARTIAL_RAW":
         files["partial_raw.abc"] = result.abc
+        if result.repaired_abc:
+            files["verified_prefix.abc"] = result.repaired_abc
+        for segment in result.diagnostic_segments:
+            segment_id = int(segment["segment"])
+            files[f"resynchronized_segment_{segment_id:03d}.abc"] = str(segment["abc"])
     elif result.conversion_status == "SMART_PARTIAL":
         files["repaired.abc"] = result.repaired_abc
         files["converted.abc"] = result.abc
@@ -4950,8 +5569,9 @@ class VHSXYuE2AutoInstrumental:
                     {
                         "default": "error",
                         "tooltip": (
-                            "error raises on failure; smart uses extended recovery and may return SMART_PARTIAL or "
-                            "PARTIAL_RAW; continue uses safe and returns PARTIAL_RAW for uncertain repairs. "
+                            "error raises on failure; smart uses extended recovery and may return SMART_RECOVERED "
+                            "or PARTIAL_RAW with validated diagnostic segments; continue uses safe and returns "
+                            "PARTIAL_RAW for uncertain repairs. "
                             "PARTIAL_RAW keeps the ABC; if safe parsing succeeds, durations are best-effort and "
                             "unvalidated. If duration is unknown, max_duration defaults to 300 seconds; zero "
                             "score_seconds, bars, or bpm values mean unknown. Vocal absence is unconfirmed."
@@ -4965,9 +5585,9 @@ class VHSXYuE2AutoInstrumental:
                     {
                         "default": False,
                         "tooltip": (
-                            "Save source and diagnostics under ComfyUI output. SMART_PARTIAL writes partial_smart.abc; "
-                            "PARTIAL_RAW writes partial_raw.abc; validated results write repaired.abc and "
-                            "converted.abc."
+                            "Save source and diagnostics under ComfyUI output. PARTIAL_RAW writes partial_raw.abc "
+                            "and may include verified_prefix.abc and resynchronized segment files; validated "
+                            "results write repaired.abc and converted.abc."
                         ),
                     },
                 ),

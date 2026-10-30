@@ -1,11 +1,12 @@
 # ComfyUI-VideoVHS-Extended
 
-An independent extension providing **Video Save Extended (VHS)** (`VHSE_VideoSave`).
-It saves an IMAGE batch as H.264 MP4 using NVIDIA NVENC or CPU libx264, with optional exact frame-count retiming,
-FFmpeg resizing and pitch-preserving audio retiming.
+An independent extension providing **Video Save Extended (VHS)** (`VHSE_VideoSave`) and
+**YuE2 Auto Instrumental (VHSX)** (`VHSX_YuE2AutoInstrumental`). The video node saves an IMAGE batch as H.264 MP4
+using NVIDIA NVENC or CPU libx264, with optional exact frame-count retiming, FFmpeg resizing and pitch-preserving
+audio retiming. The YuE2 node prepares ABC scores for instrumental generation.
 
 This is not an official VideoHelperSuite component or a replacement for VideoHelperSuite.
-Keep the original package installed. This extension registers only its own `VHSE_VideoSave` node.
+Keep the original package installed. This extension registers its own nodes alongside it.
 
 ## Installation
 
@@ -178,4 +179,89 @@ Update VideoHelperSuite independently using its normal update mechanism. After u
 one real ComfyUI workflow. The integration depends on `combine_video`, additional-format filename lookup,
 Fraction frame rates, sequence iteration, metadata controls and the `ui.gifs`/`VHS_FILENAMES` return schema.
 These extension interfaces may change upstream; a matching node name alone is not proof of compatibility.
+
+## YuE2 Auto Instrumental (VHSX)
+
+Use **Video VHS Extended → YuE2 Auto Instrumental (VHSX)** to prepare a YuE2 ABC score for instrumental
+generation. The node expects `Vocal` and `Ins` voices. With the default `instrumental_priority` policy, it mutes
+Vocal notes, transfers eligible notes into free Ins time, and preserves existing Ins pitches, timing and ties.
+It preserves source note spelling where possible, builds Lyrics section tags, and reports validation or recovery
+status. The node edits and validates ABC; it does not run the YuE2 model or generate audio.
+
+### Inputs
+
+| Input | Default | Behavior |
+| --- | --- | --- |
+| `abc` | required | Two-voice YuE2 ABC; blank input returns empty strings and zero metrics |
+| `repair_mode` | `extended` | `strict` validates; `safe` uses deterministic fixes; `extended` tries bounded repairs |
+| `melody_policy` | `instrumental_priority` | Select which voice wins note overlaps; see policies below |
+| `lyrics_mode` | `sections_only` | Select how Lyrics and, for one mode, ABC section comments are produced |
+| `padding_seconds` | `0.0` | Add 0–30 seconds before rounding up `max_duration` |
+| `max_repair_units` | `4` | Limit heuristic Vocal note shortening to 0–32 units of the active `L:` note length |
+| `on_unrecoverable` | `error` | Choose whether failures raise, try extended recovery, or return the raw ABC |
+| `save_debug_artifacts` | `false` (optional) | Save the source and diagnostics under the ComfyUI output directory |
+
+`on_unrecoverable=smart` forces `extended`; it can return `SMART_RECOVERED` or `PARTIAL_RAW`.
+`on_unrecoverable=continue` forces `safe`; when safe repairs would be uncertain, the original ABC is returned as
+`PARTIAL_RAW`. With `error`, an unrecoverable score raises an exception.
+
+### Melody policies
+
+- `instrumental_priority` keeps existing Ins notes and transfers Vocal notes only into uncovered Ins time. This is
+  the default.
+- `vocal_priority` lets Vocal notes replace overlapping Ins notes.
+- `mute_vocal_only` mutes Vocal notes without transferring them to Ins.
+
+### Lyrics modes
+
+- `sections_only` keeps source section names, order and repeats. Without section tags it returns `[Intro]` and
+  `[Outro]`.
+- `empty` returns blank Lyrics and leaves the ABC output unchanged.
+- `instrumental_sections` maps section comments in both ABC and Lyrics (`Verse`/`Pre-chorus` to `Instrumental`,
+  `Chorus` to `Interlude`, and `Bridge`/`Intro`/`Outro` to themselves). Unknown names map to `Instrumental`;
+  adjacent duplicate labels are merged with a warning.
+- `instrumental_only` creates `[Intro]`, one to twelve `[Instrumental]` sections based on
+  `ceil(score_seconds / 40)`, and `[Outro]`, without changing ABC. If duration is unknown, it uses three
+  `[Instrumental]` sections and emits a warning that Lyrics may not match ABC section comments or pass YuE2's
+  strict instrumental checker.
+
+### Outputs and validation status
+
+| Output | Type | Meaning |
+| --- | --- | --- |
+| `abc` | STRING | Instrumental ABC or the source score for a partial raw result |
+| `lyrics` | STRING | Lyrics tags selected by `lyrics_mode` |
+| `max_duration` | FLOAT | Suggested generation time limit in seconds |
+| `score_seconds` | FLOAT | Theoretical score duration when available |
+| `bars` | INT | Parsed measure count when available |
+| `bpm` | FLOAT | Initial tempo when available |
+| `info` | STRING | Short summary of tempo, duration, transfers and status |
+| `warnings` | STRING | JSON diagnostics, repair details, transfer stats and validation status |
+| `repair_count` | INT | Number of warning-level diagnostics |
+| `conversion_status` | STRING | `OK`, `SMART_RECOVERED`, or `PARTIAL_RAW` |
+
+`strict` rejects incomplete or overfull bars and invalid ties. `safe` applies deterministic repairs, such as padding
+short bars or trimming trailing rests. `extended` also tests bounded repairs for missing barlines, overflows and
+damaged metadata. Ambiguous Ins changes are rejected.
+
+For `PARTIAL_RAW`, `abc` is preserved as raw input and Vocal absence is not confirmed. If a safe parse produced a
+duration estimate but was declined because it required uncertain repairs, numeric outputs are best-effort and
+unvalidated. If duration cannot be determined, `max_duration` defaults to 300 seconds; unknown `score_seconds`,
+`bars` and `bpm` are returned as zero sentinels. The sentinel does not mean that the music is zero seconds long.
+When `smart` cannot safely assemble the whole score, `abc` contains the complete raw source and has status
+`PARTIAL_RAW`. A strictly validated prefix and any meter-resynchronized segments are diagnostic artifacts; they
+are not substituted for or merged into the main ABC. `warnings` records `converted_measures`,
+`raw_preserved_measures`, `resynchronized_segments`, `source_music_coverage`,
+`output_contains_full_source_music`, and `duration_known`. The raw output may still contain Vocal notes, and its
+full syntax is not validated. `SMART_RECOVERED` means bounded recovery passed internal validation; `OK` is
+internally validated. For both statuses, the final Ins note timeline is checked against the exact Vocal-to-Ins
+transfer by onset, duration and pitch. The output keeps the source measure-grid duration, and bars that contain
+full-measure rests in both source voices stay silent. Smart recovery also protects every completely parsed prefix
+from changes made to repair later damage. If a selected Smart hypothesis changes a Vocal note duration, `warnings`
+records each change under `conversion.source_musical_event_changes.duration_changes`, including
+`original_duration`, `repaired_duration`, `reason` and `source_span` (`start_offset`, `end_offset`, `line`, `text`).
+These are internal checks; the independent YuE checker is still only run by the audit tool.
+With `save_debug_artifacts`, raw fallbacks write `partial_raw.abc` and may also write `verified_prefix.abc` plus
+`resynchronized_segment_NNN.abc` files for the strictly validated diagnostic conversions.
+The strict YuE2 checker and YuE2 runtime are not invoked by this node.
 
