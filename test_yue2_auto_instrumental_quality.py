@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
+from yue2_test_support import dependency, verify_manifest
+
 from yue2_auto_instrumental import (
     ABCScoreParser,
     ParsedScore,
@@ -29,7 +31,7 @@ from yue2_auto_instrumental import (
 
 ROOT = Path(__file__).resolve().parent
 CORPUS_DIR = ROOT / "tests" / "raw_abc"
-UPSTREAM_CHECKER = ROOT / "tests" / "upstream_abc_tools.py"
+UPSTREAM_CHECKER = dependency("upstream_abc_tools.py")
 DEFAULT_BASELINE_REPORT = ROOT / "tmp" / "yue2_auto_instrumental_corpus_report_baseline_158.md"
 DEFAULT_REPORT_PATH = ROOT / "doc" / "yue2_auto_instrumental_quality_report.md"
 BASELINE_REPORT = DEFAULT_BASELINE_REPORT
@@ -560,6 +562,7 @@ class YuE2QualityTests(unittest.TestCase):
 
     def test_all_corpus_files_and_write_report(self) -> None:
         """Audit source/output events with both parsers and record each required status."""
+        verify_manifest()
         self.assertTrue(UPSTREAM_CHECKER.is_file(), f"Official checker is missing: {UPSTREAM_CHECKER}")
         self.assertTrue(CORPUS_DIR.is_dir(), f"ABC corpus directory is missing: {CORPUS_DIR}")
         files = sorted(CORPUS_DIR.glob("YuE2_ABC_*.txt"))

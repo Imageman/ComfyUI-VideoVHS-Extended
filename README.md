@@ -264,4 +264,3 @@ These are internal checks; the independent YuE checker is still only run by the 
 With `save_debug_artifacts`, raw fallbacks write `partial_raw.abc` and may also write `verified_prefix.abc` plus
 `resynchronized_segment_NNN.abc` files for the strictly validated diagnostic conversions.
 The strict YuE2 checker and YuE2 runtime are not invoked by this node.
-

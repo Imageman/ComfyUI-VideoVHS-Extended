@@ -1,0 +1,2 @@
+# Preserve the manifest byte representation on Windows and Linux checkouts.
+tests/raw_abc/*.txt text eol=crlf

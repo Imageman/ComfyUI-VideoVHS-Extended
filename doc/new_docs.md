@@ -141,3 +141,18 @@ CPU-режим работает без NVIDIA и использует отдел
 При `false` эти поля не записываются. Для API workflow GUI-граф необходимо передать в `extra_pnginfo.workflow`.
 Метаданные сохраняются как с аудио, так и без него, при CPU- и NVENC-кодировании.
 Повторного кодирования видеопотока для метаданных нет.
+
+### Тестовые CLI YuE2 (Fix9)
+
+`python -m pytest -c pytest_yue2.ini -m unit|corpus|extended` выбирает уровень тестирования.
+Параметр `--representative` ограничивает extended детерминированной выборкой корректных источников.
+`python yue2_test_support.py update-manifest` явно фиксирует SHA-256 всех файлов `tests/raw_abc`.
+`python yue2_test_support.py capture-baseline --error-run PATH --smart-run PATH` фиксирует результаты
+двух завершённых аудитов после review. Во время тестов обновление baseline и manifest запрещено.
+`python yue2_test_report.py` собирает итоговый Markdown из baseline и JUnit-артефактов `tmp/fix9_*.xml`.
+Правило `.gitattributes` обеспечивает одинаковые CRLF-байты корпуса на Windows и Linux для manifest.
+Начиная с Fix9, `--corpus` аудиторского CLI принимает только canonical `tests/raw_abc`;
+переданный через `--checker` файл также должен находиться внутри `tests`.
+В аудиторский `validation.json` добавлено `duration.reported_seconds` — фактически возвращённое нодой число.
+В per-file `details` добавлены `reported_score_seconds` и `serialized_score_seconds`, чтобы regression gate
+сравнивал числовой выход с повторно разобранной временной шкалой, а не только два производных значения.

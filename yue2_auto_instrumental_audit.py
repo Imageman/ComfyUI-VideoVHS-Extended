@@ -26,6 +26,8 @@ try:
 except ImportError:
     tqdm = None
 
+from yue2_test_support import dependency, verify_manifest
+
 from yue2_auto_instrumental import (
     ABCScoreParser,
     ConversionResult,
@@ -45,7 +47,7 @@ from yue2_auto_instrumental import (
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CORPUS = ROOT / "tests" / "raw_abc"
-DEFAULT_CHECKER = ROOT / "tests" / "upstream_abc_tools.py"
+DEFAULT_CHECKER = dependency("upstream_abc_tools.py")
 DEFAULT_OUTPUT_ROOT = ROOT / "tmp" / "yue2_audit"
 DEFAULT_BASELINE = ROOT / "tmp" / "yue2_auto_instrumental_corpus_report_pre_329.md"
 DEFAULT_REPAIR_MODE = "extended"
@@ -1381,6 +1383,7 @@ def _audit_one_file(
                                 "source_seconds": _score_seconds(source_score) if source_score else None,
                                 "repaired_seconds": _score_seconds(repaired_score),
                                 "converted_seconds": _score_seconds(output_score),
+                                "reported_seconds": result.score_seconds,
                                 "conversion_drift_seconds": record.duration_drift_seconds,
                                 "source_duration_whole_notes": str(_score_end(source_score))
                                 if source_score
@@ -1496,6 +1499,8 @@ def _audit_one_file(
                             "added_output_measures": record.added_output_measures,
                             "notes_in_source_silence": silent_note_hits,
                             "exact_transfer_timeline": record.exact_transfer_timeline,
+                            "reported_score_seconds": result.score_seconds,
+                            "serialized_score_seconds": _score_seconds(output_score),
                         }
                         return record
 
@@ -1963,9 +1968,14 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     """Audit all current raw ABC files and persist every success or refusal."""
     arguments = _parse_args()
+    verify_manifest()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     corpus_directory = arguments.corpus.resolve()
     checker_path = arguments.checker.resolve()
+    if corpus_directory != DEFAULT_CORPUS.resolve():
+        raise ValueError(f"Only the canonical ABC corpus is supported: {DEFAULT_CORPUS.resolve()}")
+    if not checker_path.is_relative_to((ROOT / "tests").resolve()):
+        raise ValueError(f"The independent checker must be located inside {ROOT / 'tests'}")
     if not corpus_directory.is_dir():
         raise FileNotFoundError(f"ABC corpus directory does not exist: {corpus_directory}")
     if not checker_path.is_file():

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from yue2_test_support import dependency, verify_manifest
+
 from yue2_auto_instrumental import ABCScoreParser, ScoreError, convert_abc
 
 
@@ -230,6 +232,7 @@ def _corpus_report(
     split: CorpusSplit,
 ) -> tuple[list[str], dict[str, Counter[str]], dict[str, list[str]]]:
     """Measure parser recovery, conversion invariants, and Ins preservation by split."""
+    verify_manifest()
     if not CORPUS_DIR.is_dir():
         raise FileNotFoundError(f"ABC corpus directory does not exist: {CORPUS_DIR}")
     files = sorted(path for path in CORPUS_DIR.glob("YuE2_ABC_*.txt") if path.is_file())

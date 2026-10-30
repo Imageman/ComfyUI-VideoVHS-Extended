@@ -19,13 +19,15 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+from yue2_test_support import dependency, verify_manifest
+
 from yue2_auto_instrumental import ABCScoreParser, ScoreError, convert_abc
 
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
 CORPUS_DIR = ROOT / "tests" / "raw_abc"
-SBL_PATH = ROOT / "tests" / "YuE2Instrumental.py"
+SBL_PATH = dependency("YuE2Instrumental.py")
 REPORT_PATH = ROOT / "doc" / "yue2_auto_instrumental_corpus_report.md"
 
 
@@ -85,6 +87,7 @@ def _load_sbl_reference() -> type[Any]:
 
 def _run_corpus_report() -> dict[str, int]:
     """Compare the new converter with SBL on every source file and write a Markdown report."""
+    verify_manifest()
     if not CORPUS_DIR.is_dir():
         raise FileNotFoundError(f"ABC corpus directory does not exist: {CORPUS_DIR}")
     files = sorted(path for path in CORPUS_DIR.rglob("*.txt") if path.is_file())
