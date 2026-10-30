@@ -28,8 +28,8 @@ from yue2_auto_instrumental import (
 
 
 ROOT = Path(__file__).resolve().parent
-CORPUS_DIR = ROOT / "tmp" / "raw_abc"
-UPSTREAM_CHECKER = ROOT / "tmp" / "upstream_abc_tools.py"
+CORPUS_DIR = ROOT / "tests" / "raw_abc"
+UPSTREAM_CHECKER = ROOT / "tests" / "upstream_abc_tools.py"
 DEFAULT_BASELINE_REPORT = ROOT / "tmp" / "yue2_auto_instrumental_corpus_report_baseline_158.md"
 DEFAULT_REPORT_PATH = ROOT / "doc" / "yue2_auto_instrumental_quality_report.md"
 BASELINE_REPORT = DEFAULT_BASELINE_REPORT
@@ -428,7 +428,7 @@ def _write_quality_report(records: list[FileQuality], report_path: Path) -> None
         "# YuE2 Auto Instrumental music quality audit",
         "",
         _wrap(
-            f"Corpus: {counts['files']} current files in `tmp/raw_abc`. Baseline results were captured "
+            f"Corpus: {counts['files']} current files in `tests/raw_abc`. Baseline results were captured "
             "before algorithm changes. Model execution was not available and was not tested."
         ),
         "",

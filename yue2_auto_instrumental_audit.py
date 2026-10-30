@@ -44,8 +44,8 @@ from yue2_auto_instrumental import (
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_CORPUS = ROOT / "tmp" / "raw_abc"
-DEFAULT_CHECKER = ROOT / "tmp" / "upstream_abc_tools.py"
+DEFAULT_CORPUS = ROOT / "tests" / "raw_abc"
+DEFAULT_CHECKER = ROOT / "tests" / "upstream_abc_tools.py"
 DEFAULT_OUTPUT_ROOT = ROOT / "tmp" / "yue2_audit"
 DEFAULT_BASELINE = ROOT / "tmp" / "yue2_auto_instrumental_corpus_report_pre_329.md"
 DEFAULT_REPAIR_MODE = "extended"

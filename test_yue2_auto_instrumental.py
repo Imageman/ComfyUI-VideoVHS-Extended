@@ -24,8 +24,8 @@ from yue2_auto_instrumental import ABCScoreParser, ScoreError, convert_abc
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
-CORPUS_DIR = ROOT / "tmp" / "raw_abc"
-SBL_PATH = ROOT / "reference" / "SBL" / "YuE2Instrumental.py"
+CORPUS_DIR = ROOT / "tests" / "raw_abc"
+SBL_PATH = ROOT / "tests" / "YuE2Instrumental.py"
 REPORT_PATH = ROOT / "doc" / "yue2_auto_instrumental_corpus_report.md"
 
 
@@ -189,7 +189,7 @@ def _run_corpus_report() -> dict[str, int]:
     summary = [
         "# YuE2 Auto Instrumental corpus report",
         "",
-        f"Corpus: `tmp/raw_abc` ({counts['files']} UTF-8 files).",
+        f"Corpus: `tests/raw_abc` ({counts['files']} UTF-8 files).",
         "",
         "| Metric | Result |",
         "|---|---:|",

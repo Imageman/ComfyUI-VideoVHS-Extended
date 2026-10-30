@@ -16,7 +16,7 @@ from yue2_auto_instrumental import ABCScoreParser, ScoreError, convert_abc
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
-CORPUS_DIR = ROOT / "tmp" / "raw_abc"
+CORPUS_DIR = ROOT / "tests" / "raw_abc"
 REPORT_PATH = ROOT / "doc" / "yue2_auto_instrumental_recovery_report.md"
 DEVELOPMENT_FILE_ID_MAX = 96
 CorpusSplit = Literal["development", "holdout", "all"]
@@ -359,7 +359,7 @@ def _write_report(
         "# YuE2 Auto Instrumental recovery evaluation",
         "",
         _wrap_report_text(
-            f"Corpus: all {len(list(CORPUS_DIR.glob('YuE2_ABC_*.txt')))} current files in `tmp/raw_abc`. "
+            f"Corpus: all {len(list(CORPUS_DIR.glob('YuE2_ABC_*.txt')))} current files in `tests/raw_abc`. "
             "File IDs 00001–00096 are development; IDs above 00096 are holdout. "
             "Split assignment uses filenames only."
         ),
