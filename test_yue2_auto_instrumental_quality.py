@@ -74,6 +74,7 @@ class FileQuality:
     validated_upstream: bool = False
     source_validated_upstream: bool = False
     ins_preserved_exactly: str = "unknown"
+    ins_spelling_preserved_exactly: str = "unknown"
     ins_vs_recovered_parse: str = "unknown"
     chord_positions_exactly: str = "unknown"
     duration_drift_seconds: str = "unknown"
@@ -105,6 +106,27 @@ def _note_signature(score: ParsedScore, voice_name: str) -> tuple[tuple[object, 
     events.sort(key=lambda event: (event.onset, event.source_order))
     return tuple(
         (event.onset, event.duration, event.pitch, event.tied_after)
+        for event in events
+    )
+
+
+def _note_spelling_signature(score: ParsedScore, voice_name: str) -> tuple[tuple[object, ...], ...]:
+    """Return sounding notes with their spelling and explicit accidental token."""
+    events = [
+        event
+        for event in score.voices[voice_name].events
+        if event.kind == "note"
+    ]
+    events.sort(key=lambda event: (event.onset, event.source_order))
+    return tuple(
+        (
+            event.onset,
+            event.duration,
+            event.pitch,
+            event.tied_after,
+            event.accidental or "",
+            event.spelling,
+        )
         for event in events
     )
 
@@ -289,10 +311,15 @@ def _classify_file(
     if source_score is not None and output_score is not None:
         source_ins = Counter(_note_signature(source_score, "ins"))
         output_ins = Counter(_note_signature(output_score, "ins"))
+        source_spelling = Counter(_note_spelling_signature(source_score, "ins"))
+        output_spelling = Counter(_note_spelling_signature(output_score, "ins"))
         recovered_ins_preserved = not source_ins - output_ins
         record.ins_vs_recovered_parse = "yes" if recovered_ins_preserved else "no"
         source_unambiguous = record.strict_input or not record.repaired_heuristic
         if source_unambiguous:
+            record.ins_spelling_preserved_exactly = (
+                "yes" if not source_spelling - output_spelling else "no"
+            )
             ins_equal = (
                 recovered_ins_preserved
                 and _grid_signature(source_score, "ins") == _grid_signature(output_score, "ins")
@@ -348,7 +375,13 @@ def _write_quality_report(records: list[FileQuality], report_path: Path) -> None
         "source_validated_upstream": sum(record.source_validated_upstream for record in records),
         "unsupported_chord_quality": sum(record.unsupported_chord_quality for record in records),
         "ins_preserved_exactly": sum(record.ins_preserved_exactly == "yes" for record in records),
+        "ins_spelling_preserved_exactly": sum(
+            record.ins_spelling_preserved_exactly == "yes" for record in records
+        ),
+        "ins_spelling_unknown": sum(record.ins_spelling_preserved_exactly == "unknown" for record in records),
         "ins_preservation_unknown": sum(record.ins_preserved_exactly == "unknown" for record in records),
+        "chord_positions_exactly": sum(record.chord_positions_exactly == "yes" for record in records),
+        "chord_positions_unknown": sum(record.chord_positions_exactly == "unknown" for record in records),
         "musical_semantics_uncertain": sum(record.musical_semantics_uncertain for record in records),
         "previously_accepted_now_rejected": sum(
             record.baseline_converted == "yes" and not record.converted for record in records
@@ -381,6 +414,7 @@ def _write_quality_report(records: list[FileQuality], report_path: Path) -> None
             f"validated_upstream={_format_bool(record.validated_upstream)}; "
             f"ins_vs_recovered_parse={record.ins_vs_recovered_parse}; "
             f"ins_preserved_exactly={record.ins_preserved_exactly}; "
+            f"ins_spelling_preserved_exactly={record.ins_spelling_preserved_exactly}; "
             f"chord_positions_exactly={record.chord_positions_exactly}; "
             f"duration_drift_seconds={record.duration_drift_seconds}; "
             f"musical_semantics_uncertain={_format_bool(record.musical_semantics_uncertain)}; "
@@ -413,6 +447,16 @@ def _write_quality_report(records: list[FileQuality], report_path: Path) -> None
             "`Ins preserved exactly` checks that each recovered source note, including ties, remains in output. "
             "Vocal notes transferred into uncovered Ins time are allowed. `unknown` means damaged input did not "
             "establish a unique source timeline."
+        ),
+        "",
+        _wrap(
+            "`chord_positions_exactly` compares chord labels and onset times for strict-valid source scores."
+        ),
+        "",
+        _wrap(
+            "`Ins spelling preserved exactly` additionally compares each source note's letter case, octave marks, "
+            "and explicit accidental against its reparsed output event. It is unknown when source recovery itself "
+            "is heuristic."
         ),
         "",
         _wrap(
@@ -533,6 +577,7 @@ class YuE2QualityTests(unittest.TestCase):
             f"Quality audit: converted={sum(record.converted for record in records)}/{len(records)}, "
             f"upstream={sum(record.validated_upstream for record in records)}, "
             f"Ins exact={sum(record.ins_preserved_exactly == 'yes' for record in records)}, "
+            f"Ins spelling exact={sum(record.ins_spelling_preserved_exactly == 'yes' for record in records)}, "
             f"uncertain={sum(record.musical_semantics_uncertain for record in records)}."
         )
 

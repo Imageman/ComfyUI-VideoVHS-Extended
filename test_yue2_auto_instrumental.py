@@ -214,7 +214,9 @@ def _run_corpus_report() -> dict[str, int]:
             f"Repair success rate: {_percentage(counts['new_repaired'], counts['strict_invalid'])} "
             "(successful repaired files / strict-invalid inputs). "
             f"Internal Ins invariant pass rate: {_percentage(counts['ins_preserved'], counts['new_success'])}. "
-            "This checks converter invariants, not reconstruction accuracy for damaged source ABC. "
+            "The warning-based repair count includes source-spelling serialization diagnostics; added accidentals "
+            "preserve exact pitch and do not indicate changed musical events. This checks converter invariants, "
+            "not reconstruction accuracy for damaged source ABC. "
             "See the quality report for per-file exact event comparisons and uncertainty.",
             width=110,
         ),
@@ -296,6 +298,22 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         self.assertEqual(VHSXYuE2AutoInstrumental.RETURN_NAMES[-1], "conversion_status")
         schema = VHSXYuE2AutoInstrumental.INPUT_TYPES()
         self.assertEqual(schema["required"]["on_unrecoverable"][0], ["error", "smart", "continue"])
+        repair_tooltip = schema["required"]["repair_mode"][1]["tooltip"]
+        self.assertIn("strict rejects", repair_tooltip)
+        self.assertIn("safe applies deterministic repairs", repair_tooltip)
+        self.assertIn("extended also tests bounded repairs", repair_tooltip)
+        self.assertIn("smart forces extended; continue forces safe", repair_tooltip)
+        fallback_tooltip = schema["required"]["on_unrecoverable"][1]["tooltip"]
+        self.assertIn("PARTIAL_RAW keeps the ABC", fallback_tooltip)
+        self.assertIn("max_duration defaults to 300 seconds", fallback_tooltip)
+        self.assertIn("zero score_seconds, bars, or bpm values mean unknown", fallback_tooltip)
+        self.assertIn("durations are best-effort and unvalidated", fallback_tooltip)
+        self.assertIn("Vocal absence is unconfirmed", fallback_tooltip)
+        self.assertEqual(
+            schema["required"]["lyrics_mode"][0],
+            ["sections_only", "empty", "instrumental_sections", "instrumental_only"],
+        )
+        self.assertTrue(schema["required"]["lyrics_mode"][1]["tooltip"])
         self.assertEqual(len(VHSXYuE2AutoInstrumental().convert("")), 10)
         self.assertEqual(VHSXYuE2AutoInstrumental().convert("")[-1], "OK")
 
@@ -465,7 +483,7 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         """Decompose an unsupported integer multiplier into exact supported YuE lengths."""
         source = _make_score("C28z4|", "Z|").replace("L:1/8", "L:1/32")
         result = convert_abc(source)
-        self.assertIn("=C24-=C4z4|", result.abc)
+        self.assertIn("C24-C4z4|", result.abc)
         parsed = ABCScoreParser("strict", 4).parse(result.abc)
         notes = [event for event in parsed.voices["ins"].events if event.kind == "note"]
         self.assertEqual([(event.onset, event.duration, event.pitch) for event in notes], [(0, Fraction(7, 8), 60)])
@@ -538,6 +556,138 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         parsed = ABCScoreParser("strict", 4).parse(result.abc)
         notes = [event for event in parsed.voices["ins"].events if event.kind == "note"]
         self.assertEqual([(event.onset, event.duration, event.pitch) for event in notes], [(0, 2, 70)])
+        self.assertIn("_B8|", result.abc)
+
+    def test_lyrics_modes_preserve_or_map_tags_and_keep_abc_contracts(self) -> None:
+        """Keep each Lyrics policy distinct while changing comments only in instrumental_sections."""
+        score = (
+            "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n"
+            "% Verse\nV: Vocal\nC8|\n"
+            "% Pre-chorus\nD8|\n"
+            "% Chorus\nE8|\n"
+            "% Mood\nF8|\n"
+            "V: Ins\nZ|Z|Z|Z|\n"
+        )
+        sections_only = convert_abc(score, lyrics_mode="sections_only")
+        empty = convert_abc(score, lyrics_mode="empty")
+        instrumental_sections = convert_abc(score, lyrics_mode="instrumental_sections")
+        instrumental_only = convert_abc(score, lyrics_mode="instrumental_only")
+
+        self.assertEqual(
+            sections_only.lyrics,
+            "[Verse]\n[Pre-chorus]\n[Chorus]\n[Mood]",
+        )
+        self.assertEqual(empty.lyrics, "")
+        self.assertEqual(
+            instrumental_sections.lyrics,
+            "[Instrumental]\n[Interlude]\n[Instrumental]",
+        )
+        self.assertEqual(instrumental_only.lyrics, "[Intro]\n[Instrumental]\n[Outro]")
+        self.assertEqual(sections_only.abc, empty.abc)
+        self.assertEqual(sections_only.abc, instrumental_only.abc)
+        self.assertIn("% Instrumental", instrumental_sections.abc)
+        self.assertIn("% Interlude", instrumental_sections.abc)
+        self.assertNotIn("% Verse", instrumental_sections.abc)
+        self.assertNotIn("% Pre-chorus", instrumental_sections.abc)
+        diagnostics = {item.code for item in instrumental_sections.diagnostics}
+        self.assertIn("unknown_instrumental_section", diagnostics)
+        self.assertIn("duplicate_instrumental_section", diagnostics)
+        self.assertIn(
+            "instrumental_lyrics_may_not_match_abc",
+            {item.code for item in instrumental_only.diagnostics},
+        )
+        continue_instrumental_only = convert_abc(
+            score,
+            lyrics_mode="instrumental_only",
+            on_unrecoverable="continue",
+        )
+        self.assertEqual(continue_instrumental_only.conversion_status, "OK")
+
+    def test_lyrics_fallback_and_duration_based_instrumental_count(self) -> None:
+        """Emit Intro/Outro without source tags and use ceiling duration buckets."""
+        no_sections = convert_abc(_make_score("C8|", "Z|"), lyrics_mode="sections_only")
+        self.assertEqual(no_sections.lyrics, "[Intro]\n[Outro]")
+
+        long_score = _make_score("Z21|", "Z21|")
+        instrumental = convert_abc(long_score, lyrics_mode="instrumental_only")
+        self.assertEqual(instrumental.score_seconds, 42.0)
+        self.assertEqual(
+            instrumental.lyrics,
+            "[Intro]\n[Instrumental]\n[Instrumental]\n[Outro]",
+        )
+        self.assertEqual(instrumental.abc, convert_abc(long_score).abc)
+
+    def test_unknown_duration_in_smart_partial_and_partial_raw_lyrics(self) -> None:
+        """Use three Instrumental sections and warnings when a partial score has unknown duration."""
+        partial = (
+            "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n"
+            "V: Vocal\nC8|\nD4H4|\nV: Ins\nG8|A8|\n"
+        )
+        smart = convert_abc(partial, on_unrecoverable="smart", lyrics_mode="instrumental_only")
+        self.assertEqual(smart.conversion_status, "SMART_PARTIAL")
+        self.assertEqual(smart.lyrics.count("[Instrumental]"), 3)
+        smart_diagnostics = {item["code"] for item in json.loads(smart.warnings)["diagnostics"]}
+        self.assertIn("unknown_instrumental_duration", smart_diagnostics)
+        self.assertIn("instrumental_lyrics_may_not_match_abc", smart_diagnostics)
+        self.assertEqual(smart.abc, convert_abc(partial, on_unrecoverable="smart").abc)
+
+        raw_source = _make_score("C4H4|", "Z|")
+        raw = convert_abc(
+            raw_source,
+            on_unrecoverable="continue",
+            lyrics_mode="instrumental_only",
+        )
+        self.assertEqual(raw.conversion_status, "PARTIAL_RAW")
+        self.assertEqual(raw.abc, raw_source)
+        self.assertEqual(raw.lyrics.count("[Instrumental]"), 3)
+        raw_diagnostics = {item["code"] for item in json.loads(raw.warnings)["diagnostics"]}
+        self.assertIn("unknown_instrumental_duration", raw_diagnostics)
+        self.assertIn("instrumental_lyrics_may_not_match_abc", raw_diagnostics)
+
+    def test_source_note_spelling_respects_keys_and_measure_accidentals(self) -> None:
+        """Preserve natural, flat, and sharp spelling while resetting accidentals at barlines."""
+        key_score = (
+            "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:Bb\n"
+            "V: Vocal\nZ|Z|\nV: Ins\nB8|=B8|\n"
+        )
+        key_result = convert_abc(key_score)
+        self.assertIn("B8|=B8|", key_result.abc)
+
+        accidental_score = _make_score("Z|Z|", "^F4F4|F8|")
+        accidental_result = convert_abc(accidental_score)
+        self.assertIn("^F4F4|F8|", accidental_result.abc)
+        parsed = ABCScoreParser("strict", 4).parse(accidental_result.abc)
+        notes = [event for event in parsed.voices["ins"].events if event.kind == "note"]
+        self.assertEqual(
+            [(event.onset, event.duration, event.pitch) for event in notes],
+            [
+                (Fraction(0), Fraction(1, 2), 66),
+                (Fraction(1, 2), Fraction(1, 2), 66),
+                (Fraction(1), Fraction(1), 65),
+            ],
+        )
+
+        transferred = convert_abc(_make_score("_B8|", "Z|"))
+        self.assertIn("_B8|", transferred.abc)
+
+    def test_tied_source_note_keeps_accidental_across_barline(self) -> None:
+        """Repeat a sharp only as needed when a tied source note crosses a barline."""
+        result = convert_abc(_make_score("Z|Z|", "^F8-|^F8|"))
+        self.assertIn("^F8-|^F8|", result.abc)
+        parsed = ABCScoreParser("strict", 4).parse(result.abc)
+        notes = [event for event in parsed.voices["ins"].events if event.kind == "note"]
+        self.assertEqual([(event.onset, event.duration, event.pitch) for event in notes], [(0, 2, 66)])
+
+    def test_enharmonic_ins_spellings_survive_with_exact_pitch(self) -> None:
+        """Retain enharmonic source spellings even when they share a MIDI pitch."""
+        score = _make_score("Z|Z|", "^C8|_D8|")
+        result = convert_abc(score)
+        self.assertIn("^C8|_D8|", result.abc)
+        parsed = ABCScoreParser("strict", 4).parse(result.abc)
+        notes = [event for event in parsed.voices["ins"].events if event.kind == "note"]
+        self.assertEqual([event.pitch for event in notes], [61, 61])
+        self.assertEqual([event.spelling for event in notes], ["C", "D"])
+        self.assertEqual([event.accidental for event in notes], ["^", "_"])
 
     def test_tempo_changes_are_integrated_into_score_duration(self) -> None:
         """Calculate score time using each active tempo segment."""
@@ -637,6 +787,7 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         conversion = json.loads(result.warnings)["conversion"]
         self.assertEqual(result.conversion_status, "PARTIAL_RAW")
         self.assertEqual(result.abc, source)
+        self.assertEqual(result.max_duration, 300.0)
         self.assertEqual(result.bars, 0)
         self.assertFalse(conversion["vocal_absence_confirmed"])
         self.assertEqual(conversion["internal_validator"], "not_passed")
@@ -644,15 +795,177 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         self.assertEqual(result.verbatim_spans[0]["start_offset"], 0)
         self.assertEqual(result.verbatim_spans[0]["end_offset"], len(source))
 
+    def test_smart_recovers_a_missing_meter_from_exact_cross_voice_grid(self) -> None:
+        """Select the meter hypothesis that avoids synthetic padding in both voices."""
+        clean = _make_score("C4|D4|", "G4|A4|").replace("M:4/4\n", "M:2/4\n", 1)
+        damaged = clean.replace("M:2/4\n", "", 1)
+        result = convert_abc(damaged, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        expected = ABCScoreParser("strict", 4).parse(clean)
+        for voice_name in ("vocal", "ins"):
+            actual_notes = [
+                (event.onset, event.duration, event.pitch)
+                for event in repaired.voices[voice_name].events
+                if event.kind == "note"
+            ]
+            expected_notes = [
+                (event.onset, event.duration, event.pitch)
+                for event in expected.voices[voice_name].events
+                if event.kind == "note"
+            ]
+            self.assertEqual(actual_notes, expected_notes)
+        conversion = json.loads(result.warnings)["conversion"]
+        self.assertIn("Insert M:2/4", conversion["selected_hypotheses"][0])
+
+    def test_smart_repairs_a_missing_barline_without_changing_events(self) -> None:
+        """Use a complete-note sequence to recover deleted measure boundaries."""
+        clean = _make_score("C8|D8|", "G8|A8|")
+        damaged = _make_score("C8D8", "G8|A8|")
+        result = convert_abc(damaged, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        expected = ABCScoreParser("strict", 4).parse(clean)
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        for voice_name in ("vocal", "ins"):
+            actual = [
+                (event.onset, event.duration, event.pitch)
+                for event in repaired.voices[voice_name].events
+                if event.kind == "note"
+            ]
+            wanted = [
+                (event.onset, event.duration, event.pitch)
+                for event in expected.voices[voice_name].events
+                if event.kind == "note"
+            ]
+            self.assertEqual(actual, wanted)
+
+    def test_smart_recovers_a_short_tied_note_duration(self) -> None:
+        """Increase only a tied note by the exact measure deficit and preserve the timeline."""
+        header = "X:1\nM:7/8\nL:1/32\nQ:1/4=120\nK:C\n"
+        clean = header + "V: Vocal\nC8D8E8F4-|F1z27|\nV: Ins\nZ|Z|\n"
+        damaged = header + "V: Vocal\nC8D8E8F3-|F1z27|\nV: Ins\nZ|Z|\n"
+        result = convert_abc(damaged, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        expected = ABCScoreParser("strict", 4).parse(clean)
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        actual_notes = [
+            (event.onset, event.duration, event.pitch)
+            for event in repaired.voices["vocal"].events
+            if event.kind == "note"
+        ]
+        expected_notes = [
+            (event.onset, event.duration, event.pitch)
+            for event in expected.voices["vocal"].events
+            if event.kind == "note"
+        ]
+        self.assertEqual(actual_notes, expected_notes)
+
+    def test_smart_trims_overlapping_instrumental_note_to_barline(self) -> None:
+        """Repair an overhanging Ins duration while keeping both pitches and onsets."""
+        source = _make_score("Z|Z|", "G10|A6|")
+        result = convert_abc(source, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        notes = [
+            (event.onset, event.duration, event.pitch)
+            for event in repaired.voices["ins"].events
+            if event.kind == "note"
+        ]
+        self.assertEqual(notes, [(Fraction(0), Fraction(1), 67), (Fraction(1), Fraction(3, 4), 69)])
+
+    def test_smart_closes_broken_chord_and_keeps_its_source_label(self) -> None:
+        """Close an unterminated chord at the only boundary with a valid following note."""
+        source = _make_score('"D#/A##z8|', "Z|")
+        result = convert_abc(source, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        chords = [
+            event.chord
+            for event in repaired.voices["vocal"].events
+            if event.kind == "chord"
+        ]
+        self.assertEqual(chords, ['"D#/A##"'])
+
+    def test_smart_combines_chord_and_adjacent_tied_measure_repairs(self) -> None:
+        """Repair a broken chord and two adjacent tied deficits without losing notes."""
+        header = "X:1\nM:7/8\nL:1/32\nQ:1/4=120\nK:C\n"
+        clean = (
+            header
+            + 'V: Vocal\n"G"C8D8E8F4-|F1C8D8E8G3-|G1z27|\n'
+            + "V: Ins\nZ|Z|Z|\n"
+        )
+        damaged = (
+            header
+            + 'V: Vocal\n"GC8D8E8F3-|F1C8D8E8G2-|G1z27|\n'
+            + "V: Ins\nZ|Z|Z|\n"
+        )
+        result = convert_abc(damaged, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_RECOVERED")
+        expected = ABCScoreParser("strict", 4).parse(clean)
+        repaired = ABCScoreParser("strict", 4).parse(result.repaired_abc)
+        actual_notes = [
+            (event.onset, event.duration, event.pitch)
+            for event in repaired.voices["vocal"].events
+            if event.kind == "note"
+        ]
+        expected_notes = [
+            (event.onset, event.duration, event.pitch)
+            for event in expected.voices["vocal"].events
+            if event.kind == "note"
+        ]
+        self.assertEqual(actual_notes, expected_notes)
+        hypotheses = json.loads(result.warnings)["conversion"]["selected_hypotheses"]
+        self.assertEqual(len(hypotheses), 3)
+
+    def test_smart_partial_converts_aligned_prefix_and_preserves_remaining_source(self) -> None:
+        """Convert only aligned complete bars and retain the unsupported suffix verbatim."""
+        source = (
+            "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n"
+            "V: Vocal\nC8|\nD4H4|\n"
+            "V: Ins\nG8|A8|\n"
+        )
+        result = convert_abc(source, on_unrecoverable="smart")
+        self.assertEqual(result.conversion_status, "SMART_PARTIAL")
+        self.assertEqual(result.bars, 1)
+        self.assertTrue(result.verbatim_spans)
+        for span in result.verbatim_spans:
+            self.assertEqual(source[span["start_offset"]:span["end_offset"]], span["text"])
+        conversion = json.loads(result.warnings)["conversion"]
+        self.assertFalse(conversion["vocal_absence_confirmed"])
+        self.assertEqual(conversion["internal_validator"], "partial_fragment_passed")
+
     def test_continue_accepts_clean_score_and_preserves_ambiguous_score(self) -> None:
         """Convert a clean score but keep the full raw input after an unknown token."""
         clean = convert_abc(_make_score("C8|", "Z|"), on_unrecoverable="continue")
         self.assertEqual(clean.conversion_status, "OK")
+        spelling_adjustment = convert_abc(
+            _make_score("F4F4|", "^F4z4|"),
+            on_unrecoverable="continue",
+        )
+        self.assertEqual(spelling_adjustment.conversion_status, "OK")
+        self.assertIn(
+            "source_spelling_accidental_adjusted",
+            {item.code for item in spelling_adjustment.diagnostics},
+        )
+        uncertain_source = _make_score("C4-D4|", "Z|")
+        uncertain = convert_abc(uncertain_source, on_unrecoverable="continue")
+        self.assertEqual(uncertain.conversion_status, "PARTIAL_RAW")
+        self.assertEqual(uncertain.abc, uncertain_source)
+        self.assertEqual(uncertain.score_seconds, 2.0)
+        self.assertEqual(uncertain.max_duration, 2.0)
+        uncertain_conversion = json.loads(uncertain.warnings)["conversion"]
+        self.assertEqual(uncertain_conversion["numeric_output_source"], "safe_parser_estimate")
+        self.assertFalse(uncertain_conversion["unknown_numeric_outputs_use_zero_sentinel"])
         source = _make_score("C4H4|", "Z|")
         partial = convert_abc(source, on_unrecoverable="continue")
         self.assertEqual(partial.conversion_status, "PARTIAL_RAW")
         self.assertEqual(partial.abc, source)
-        self.assertFalse(json.loads(partial.warnings)["conversion"]["vocal_absence_confirmed"])
+        self.assertEqual(partial.max_duration, 300.0)
+        self.assertEqual(partial.score_seconds, 0.0)
+        partial_conversion = json.loads(partial.warnings)["conversion"]
+        self.assertEqual(partial_conversion["numeric_output_source"], "default_300_seconds")
+        self.assertTrue(partial_conversion["unknown_numeric_outputs_use_zero_sentinel"])
+        self.assertFalse(partial_conversion["vocal_absence_confirmed"])
 
     def test_invalid_unrecoverable_policy_still_raises(self) -> None:
         """Reject invalid settings rather than returning a raw fallback for configuration errors."""

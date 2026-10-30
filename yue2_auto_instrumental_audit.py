@@ -72,6 +72,8 @@ SUMMARY_FIELDS = (
     "verbatim_span_count",
     "source_events_removed",
     "source_events_changed",
+    "events_preserved",
+    "events_modified",
     "ins_preservation",
     "vocal_notes",
     "vocal_transferred",
@@ -99,6 +101,8 @@ class AuditRecord:
     verbatim_span_count: int = 0
     source_events_removed: int | None = None
     source_events_changed: int | None = None
+    events_preserved: int | None = None
+    events_modified: int | None = None
     ins_preservation: str = "unknown"
     vocal_notes: int = 0
     vocal_transferred: int = 0
@@ -761,11 +765,15 @@ def _partial_raw_artifacts(
     source_bytes: bytes,
     source_text: str,
     partial_text: str,
+    repaired_text: str,
     spans: list[dict[str, object]],
     validation: dict[str, Any],
     events_before: dict[str, Any],
+    candidate_log: list[dict[str, object]],
+    conversion_status: str,
+    events_after: dict[str, Any] | None = None,
 ) -> None:
-    """Save a verbatim fallback separately from validated conversion artifacts."""
+    """Save a partial result, its exact source spans, candidate log, and validation state."""
     directory.mkdir(parents=True, exist_ok=False)
     source_path = directory / "source.abc"
     try:
@@ -773,26 +781,39 @@ def _partial_raw_artifacts(
     except Exception as exc:
         LOGGER.error(f"Unable to write source file {source_path}: {exc}\n{traceback.format_exc()}")
         raise
-    _write_text(directory / "partial_raw.abc", partial_text)
+    partial_name = "partial_smart.abc" if conversion_status == "SMART_PARTIAL" else "partial_raw.abc"
+    _write_text(directory / partial_name, partial_text)
+    if conversion_status == "SMART_PARTIAL":
+        _write_text(directory / "repaired.abc", repaired_text)
+        _write_text(directory / "converted.abc", partial_text)
     _write_json(
         directory / "repairs.json",
         {
-            "conversion_status": "PARTIAL_RAW",
+            "conversion_status": conversion_status,
+            "candidates": candidate_log,
             "repairs": [],
             "verbatim_spans": spans,
         },
     )
     _write_json(directory / "validation.json", validation)
     _write_json(directory / "events_before.json", events_before)
+    if events_after is not None:
+        _write_json(directory / "events_after.json", events_after)
     _write_text(
         directory / "diff.md",
         "\n".join(
             [
-                "# Partial raw fallback",
+                f"# {conversion_status}",
                 "",
-                "The complete source text was returned verbatim because no safe partial serialization was available.",
-                "No source events were removed or changed by this fallback; raw syntax and Vocal events remain",
-                "unvalidated. Vocal absence is not confirmed.",
+                (
+                    "Only a complete aligned prefix was converted; the remaining source spans are preserved."
+                    if conversion_status == "SMART_PARTIAL"
+                    else (
+                        "The complete source text was returned verbatim because no safe partial serialization "
+                        "was available."
+                    )
+                ),
+                "Raw syntax and Vocal absence are not fully validated.",
                 "",
                 f"- Source and partial text identical: {partial_text == source_text}.",
                 f"- Verbatim spans: {len(spans)}.",
@@ -861,17 +882,48 @@ def _audit_one_file(
         if result is not None:
             record.repair_count = result.repair_count
             record.conversion_status = result.conversion_status
-            if result.conversion_status == "PARTIAL_RAW":
+            if result.conversion_status in {"PARTIAL_RAW", "SMART_PARTIAL"}:
                 warning_details = json.loads(result.warnings) if result.warnings else {}
                 conversion = warning_details.get("conversion", {})
                 spans = result.verbatim_spans
-                record.status = "partial_raw"
-                record.category = "PARTIAL_RAW"
+                smart_partial = result.conversion_status == "SMART_PARTIAL"
+                partial_status = "smart_partial" if smart_partial else "partial_raw"
+                record.status = partial_status
+                record.category = result.conversion_status
                 record.vocal_absence_confirmed = "no"
                 record.verbatim_span_count = len(spans)
-                record.source_events_removed = 0
-                record.source_events_changed = 0
-                record.error = spans[0].get("reason", "Unvalidated raw ABC was preserved.") if spans else ""
+                source_changes = conversion.get("source_musical_event_changes", {})
+                record.source_events_removed = source_changes.get("removed", 0) if smart_partial else 0
+                record.source_events_changed = source_changes.get("changed", 0) if smart_partial else 0
+                record.events_preserved = source_changes.get("events_preserved", 0) if smart_partial else None
+                record.events_modified = source_changes.get("events_modified", 0) if smart_partial else None
+                transfer = warning_details.get("transfer", {})
+                record.vocal_notes = transfer.get("vocal_notes", 0)
+                record.vocal_transferred = (
+                    transfer.get("fully_transferred", 0) + transfer.get("partially_transferred", 0)
+                )
+                record.vocal_blocked = transfer.get("not_transferred", 0)
+                record.ins_changed = (
+                    transfer.get("ins_notes_changed", 0) + transfer.get("ins_notes_repaired", 0)
+                )
+                record.ins_preservation = (
+                    "verified" if transfer.get("ins_preservation_verified") == 1 else "unknown"
+                )
+                partial_reason = next(
+                    (
+                        str(item.get("reason", ""))
+                        for item in result.candidate_log
+                        if item.get("type") == "smart_partial" and item.get("status") == "accepted"
+                    ),
+                    "",
+                )
+                record.error = (
+                    str(spans[0].get("reason", "Unvalidated raw ABC was preserved."))
+                    if spans and not smart_partial
+                    else str(conversion.get("downstream_risk", "Only part of the source was converted."))
+                )
+                if smart_partial and partial_reason:
+                    record.error = partial_reason
                 scratch_directory = run_directory / "checker_candidates"
                 scratch_directory.mkdir(parents=True, exist_ok=True)
                 scratch_path = scratch_directory / f"{source_path.stem}.abc"
@@ -883,10 +935,17 @@ def _audit_one_file(
                     scratch_path,
                     upstream_source.get("status") == "accepted",
                 )
-                record.upstream_status = (
-                    "accepted"
-                    if upstream_output.get("python_parser") == "accepted"
+                upstream_partial_accepted = (
+                    upstream_output.get("python_parser") == "accepted"
                     and upstream_output.get("inspect_status") == "accepted"
+                )
+                record.upstream_status = (
+                    "partial_only_accepted"
+                    if smart_partial and upstream_partial_accepted
+                    else "partial_only_rejected"
+                    if smart_partial
+                    else "accepted"
+                    if upstream_partial_accepted
                     else str(upstream_output.get("python_parser", "error"))
                     if upstream_output.get("python_parser") != "accepted"
                     else str(upstream_output.get("inspect_status", "error"))
@@ -899,40 +958,89 @@ def _audit_one_file(
                             f"Unable to remove temporary checker file {scratch_path}: {exc}\n"
                             f"{traceback.format_exc()}"
                         )
+                events_after: dict[str, Any] | None = None
+                partial_score: ParsedScore | None = None
+                if smart_partial:
+                    partial_score, partial_parser, partial_error = _parse_score(result.abc, "strict")
+                    if partial_score is not None:
+                        events_after = _event_payload(
+                            "smart_partial_converted_prefix",
+                            partial_score,
+                            partial_parser,
+                            record.sha256,
+                            True,
+                            "",
+                        )
+                    else:
+                        validation_error = (
+                            f"SMART_PARTIAL fragment did not pass strict validation: {partial_error}"
+                        )
+                        LOGGER.error(f"{source_path.name}: {validation_error}")
+                        record.error = f"{record.error} {validation_error}".strip()
+                span_error = next(
+                    (
+                        f"Invalid verbatim span in {source_path.name}."
+                        for span in spans
+                        if int(span.get("start_offset", -1)) < 0
+                        or int(span.get("end_offset", -1)) > len(source_text)
+                        or int(span.get("end_offset", -1)) < int(span.get("start_offset", -1))
+                        or source_text[int(span["start_offset"]):int(span["end_offset"])] != span.get("text")
+                    ),
+                    "",
+                )
+                if span_error:
+                    raise ScoreError(span_error)
+                ordered_spans = sorted(spans, key=lambda span: int(span["start_offset"]))
+                if any(
+                    int(previous["end_offset"]) > int(current["start_offset"])
+                    for previous, current in zip(ordered_spans, ordered_spans[1:])
+                ):
+                    raise ScoreError(f"Overlapping verbatim source spans in {source_path.name}.")
                 validation = {
                     "file": source_path.name,
                     "source_sha256": record.sha256,
-                    "conversion_status": "PARTIAL_RAW",
-                    "internal_validator": "not_passed",
+                    "conversion_status": result.conversion_status,
+                    "internal_validator": conversion.get("internal_validator", "not_passed"),
+                    "partial_fragment_strict_validation": (
+                        "accepted" if partial_score is not None else "not_run" if not smart_partial else "rejected"
+                    ),
                     "independent_yue_checker": upstream_output,
                     "raw_source_preserved": result.abc == source_text,
                     "vocal_absence_confirmed": False,
-                    "source_events_removed": 0,
-                    "source_events_changed": 0,
-                    "unknown_numeric_outputs_use_zero_sentinel": True,
+                    "source_events_removed": record.source_events_removed,
+                    "source_events_changed": record.source_events_changed,
+                    "events_preserved_in_converted_prefix": record.events_preserved,
+                    "events_modified_by_smart_candidates": record.events_modified,
+                    "unknown_numeric_outputs_use_zero_sentinel": not smart_partial,
                     "verbatim_spans": spans,
                     "downstream_risk": conversion.get("downstream_risk", "YuE2 may reject raw ABC."),
                     "yue2_runtime_tested": False,
                 }
-                artifact_directory = run_directory / "partial_raw" / source_path.stem
+                artifact_directory = run_directory / partial_status / source_path.stem
                 _partial_raw_artifacts(
                     artifact_directory,
                     source_bytes,
                     source_text,
                     result.abc,
+                    result.repaired_abc,
                     spans,
                     validation,
                     before_payload,
+                    result.candidate_log,
+                    result.conversion_status,
+                    events_after,
                 )
                 record.artifact_directory = artifact_directory.relative_to(run_directory).as_posix()
                 record.details = {
                     "baseline_converted": baseline.get(source_path.name),
-                    "internal_status": "partial_raw",
-                    "conversion_status": "PARTIAL_RAW",
+                    "internal_status": partial_status,
+                    "conversion_status": result.conversion_status,
                     "vocal_absence_confirmed": False,
                     "verbatim_span_count": len(spans),
-                    "source_events_removed": 0,
-                    "source_events_changed": 0,
+                    "source_events_removed": record.source_events_removed,
+                    "source_events_changed": record.source_events_changed,
+                    "events_preserved": record.events_preserved,
+                    "events_modified": record.events_modified,
                     "independent_checker": upstream_output,
                 }
                 return record
@@ -1013,6 +1121,12 @@ def _audit_one_file(
                             transfer.get("ins_notes_changed", 0)
                             + transfer.get("ins_notes_repaired", 0)
                         )
+                        source_changes = warnings.get("conversion", {}).get(
+                            "source_musical_event_changes",
+                            {},
+                        )
+                        if record.events_modified is None:
+                            record.events_modified = source_changes.get("events_modified")
                         record.ins_preservation = (
                             "verified" if transfer.get("ins_preservation_verified") == 1 else "unknown"
                         )
@@ -1041,6 +1155,18 @@ def _audit_one_file(
                             record.source_events_changed = sum(
                                 sum(voice["changed_counts"].values())
                                 for voice in source_repair_delta["voices"].values()
+                            )
+                            source_event_count = sum(len(voice.events) for voice in source_score.voices.values())
+                            record.events_preserved = max(
+                                0,
+                                source_event_count
+                                - (record.source_events_removed or 0)
+                                - (record.source_events_changed or 0),
+                            )
+                            record.events_modified = record.source_events_changed
+                            ins_delta = source_repair_delta["voices"].get("ins", {})
+                            record.ins_changed += ins_delta.get("removed_count", 0) + sum(
+                                ins_delta.get("changed_counts", {}).values()
                             )
                         record.category = (
                             "EXACT"
@@ -1368,6 +1494,7 @@ def _write_summaries(
     )
     upstream_successes = sum(item.upstream_status == "accepted" for item in records)
     partial_raw_count = sum(item.conversion_status == "PARTIAL_RAW" for item in records)
+    smart_partial_count = sum(item.conversion_status == "SMART_PARTIAL" for item in records)
     verbatim_span_count = sum(item.verbatim_span_count for item in records)
     unconfirmed_vocal_count = sum(item.vocal_absence_confirmed == "no" for item in records)
     known_source_events_removed = sum(item.source_events_removed or 0 for item in records)
@@ -1376,6 +1503,8 @@ def _write_summaries(
     vocal_events_transferred = sum(item.vocal_transferred for item in records)
     vocal_events_blocked = sum(item.vocal_blocked for item in records)
     original_ins_events_changed = sum(item.ins_changed for item in records)
+    events_preserved = sum(item.events_preserved or 0 for item in records)
+    events_modified = sum(item.events_modified or 0 for item in records)
     old_status = {
         item.file_name: item.details.get("baseline_converted")
         for item in records
@@ -1400,7 +1529,13 @@ def _write_summaries(
             "internal_conversion_successes": internal_successes,
             "independent_checker_successes": upstream_successes,
             "partial_raw_results": partial_raw_count,
+            "smart_partial_results": smart_partial_count,
+            "fully_validated": internal_successes,
+            "upstream_validated": upstream_successes,
+            "raw_only_results": partial_raw_count,
             "verbatim_spans_preserved": verbatim_span_count,
+            "events_preserved": events_preserved,
+            "events_modified": events_modified,
             "source_events_removed_during_repair": known_source_events_removed,
             "source_events_changed_during_repair": known_source_events_changed,
             "files_with_unknown_source_event_delta": source_event_delta_unknown,
@@ -1452,8 +1587,11 @@ def _write_summaries(
         f"| Internal conversion rate | {100 * internal_successes / len(records):.1f}% |",
         f"| Accepted by independent checker | {upstream_successes}/{len(records)} |",
         f"| Independent checker rate | {100 * upstream_successes / len(records):.1f}% |",
+        f"| SMART_PARTIAL results | {smart_partial_count} |",
         f"| Partial raw fallbacks | {partial_raw_count} |",
         f"| Verbatim spans preserved | {verbatim_span_count} |",
+        f"| Known source events preserved | {events_preserved} |",
+        f"| Known source events modified | {events_modified} |",
         f"| Source note events removed during repair | {known_source_events_removed} |",
         f"| Source note events changed during repair | {known_source_events_changed} |",
         f"| Files with unknown raw-to-repaired event delta | {source_event_delta_unknown} |",

@@ -9,6 +9,7 @@ import logging
 import math
 import re
 import tempfile
+import time
 import traceback
 from bisect import bisect_right
 from collections import Counter
@@ -25,12 +26,23 @@ MAX_MEASURES = 2_000
 MAX_EVENTS = 200_000
 MAX_NUMERIC_TOKEN = 999_999
 MAX_DURATION_SECONDS = 900.0
+DEFAULT_PARTIAL_RAW_MAX_DURATION_SECONDS = 300.0
 MAX_PADDING_SECONDS = 30.0
+INSTRUMENTAL_LYRIC_SECONDS = 40.0
+MIN_INSTRUMENTAL_LYRIC_SECTIONS = 1
+MAX_INSTRUMENTAL_LYRIC_SECTIONS = 12
+DEFAULT_INSTRUMENTAL_LYRIC_SECTIONS = 3
 MIN_MAX_DURATION_SECONDS = 0.04
 MAX_REPAIR_UNIT_LIMIT = 32
 MAX_REPAIR_CANDIDATES = 32
 MAX_REPAIR_LOOKAHEAD_MEASURES = 4
 MAX_REPAIR_SUFFIX_EVENTS = 20_000
+MAX_SMART_CANDIDATES = 32
+MAX_SMART_DEPTH = 3
+MAX_SMART_BEAM_WIDTH = 6
+MAX_SMART_PROPOSALS_PER_CATEGORY = 8
+MAX_SMART_CHORD_SCAN_CHARS = 4096
+MAX_SMART_SECONDS = 2.0
 MAX_UPSTREAM_NOTE_LENGTH_DENOMINATOR = 1024
 YU2_SUPPORTED_DURATION_UNITS = (48, 32, 24, 16, 12, 8, 6, 4, 3, 2, 1)
 MIDI_C4 = 60
@@ -42,6 +54,7 @@ DEFAULT_MAX_REPAIR_UNITS = 4
 
 RepairMode = Literal["strict", "safe", "extended"]
 MelodyPolicy = Literal["instrumental_priority", "vocal_priority", "mute_vocal_only"]
+LyricsMode = Literal["sections_only", "empty", "instrumental_sections", "instrumental_only"]
 
 
 class ScoreError(ValueError):
@@ -222,6 +235,16 @@ class ConversionResult:
     verbatim_spans: list[dict[str, object]] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _SmartTextCandidate:
+    """Describe one bounded text repair proposal and its heuristic cost."""
+
+    text: str
+    category: str
+    reason: str
+    cost: tuple[int, int, int]
+
+
 NOTE_PATTERN = re.compile(
     r"(?P<acc>\^\^|__|\^|_|=)?(?P<note>[A-Ga-gzZ])"
     r"(?P<oct>[' ,]*)(?P<length>\d*(?:/\d*)?)(?P<dots>\.*)(?P<tie>-?)"
@@ -307,6 +330,28 @@ KNOWN_SECTIONS = {
     "refrain",
     "outro",
 }
+SECTION_TAG_PATTERN = re.compile(r"\s*%\s*([A-Za-z][A-Za-z _-]*)\s*")
+INSTRUMENTAL_SECTION_MAP = {
+    "intro": "Intro",
+    "verse": "Instrumental",
+    "pre-chorus": "Instrumental",
+    "chorus": "Interlude",
+    "bridge": "Bridge",
+    "interlude": "Interlude",
+    "instrumental": "Instrumental",
+    "outro": "Outro",
+}
+NON_MUSICAL_WARNING_CODES = frozenset(
+    {
+        "unsupported_chord_quality",
+        "source_spelling_accidental_adjusted",
+        "source_spelling_fallback",
+        "unknown_instrumental_section",
+        "duplicate_instrumental_section",
+        "unknown_instrumental_duration",
+        "instrumental_lyrics_may_not_match_abc",
+    }
+)
 
 
 def _parse_bounded_int(value: str, label: str, allow_zero: bool = False) -> int:
@@ -468,17 +513,149 @@ def _pitch_to_token(pitch: int) -> str:
 
 
 def _extract_sections(lines: list[str]) -> list[str]:
-    """Extract supported section names from ABC percent-comment lines."""
-    sections: list[str] = []
-    for line in lines:
-        match = re.fullmatch(r"\s*%\s*([A-Za-z][A-Za-z _-]*)\s*", line)
-        if not match:
+    """Extract standalone section tags, preserving their source names and order."""
+    sections = [
+        re.sub(r"\s+", " ", match.group(1).strip())
+        for line in lines
+        if (match := SECTION_TAG_PATTERN.fullmatch(line)) is not None
+    ]
+    return sections or ["Intro", "Outro"]
+
+
+def _instrumental_section_name(source_name: str) -> tuple[str, bool]:
+    """Map a section tag to a supported YuE instrumental label."""
+    normalized = re.sub(r"[\s_]+", " ", source_name.strip().lower())
+    normalized = SECTION_ALIASES.get(normalized, normalized)
+    if normalized in INSTRUMENTAL_SECTION_MAP:
+        return INSTRUMENTAL_SECTION_MAP[normalized], True
+    return "Instrumental", False
+
+
+def _build_lyrics(
+    sections: list[str],
+    source_lines: list[str],
+    lyrics_mode: LyricsMode,
+    score_seconds: float | None,
+    duration_known: bool,
+) -> tuple[str, dict[int, str | None], list[Diagnostic], bool]:
+    """Build Lyrics and optional section-comment rewrites for the requested mode."""
+    section_comment_overrides: dict[int, str | None] = {}
+    diagnostics: list[Diagnostic] = []
+    add_fallback_comments = False
+    if lyrics_mode == "sections_only":
+        lyrics_sections = sections
+    elif lyrics_mode == "empty":
+        return "", section_comment_overrides, diagnostics, add_fallback_comments
+    elif lyrics_mode == "instrumental_sections":
+        source_tags = [
+            (line_index, re.sub(r"\s+", " ", match.group(1).strip()))
+            for line_index, line in enumerate(source_lines)
+            if (match := SECTION_TAG_PATTERN.fullmatch(line)) is not None
+        ]
+        if not source_tags:
+            lyrics_sections = ["Intro", "Outro"]
+            add_fallback_comments = True
+        else:
+            lyrics_sections = []
+            unknown_count = 0
+            merged_count = 0
+            for line_index, source_name in source_tags:
+                section, recognized = _instrumental_section_name(source_name)
+                unknown_count += int(not recognized)
+                if lyrics_sections and lyrics_sections[-1] == section:
+                    section_comment_overrides[line_index] = None
+                    merged_count += 1
+                    continue
+                lyrics_sections.append(section)
+                section_comment_overrides[line_index] = section
+            if unknown_count:
+                diagnostics.append(
+                    Diagnostic(
+                        "warning",
+                        "score",
+                        None,
+                        "Lyrics section mapping",
+                        f"Mapped {unknown_count} unknown section tag(s) to Instrumental.",
+                        "Preserve the section position using the supported Instrumental label.",
+                        "unknown_instrumental_section",
+                    )
+                )
+            if merged_count:
+                diagnostics.append(
+                    Diagnostic(
+                        "warning",
+                        "score",
+                        None,
+                        "Lyrics section mapping",
+                        f"Merged {merged_count} adjacent duplicate instrumental section label(s).",
+                        "Remove repeated adjacent comments after section mapping.",
+                        "duplicate_instrumental_section",
+                    )
+                )
+    elif lyrics_mode == "instrumental_only":
+        if duration_known and score_seconds is not None:
+            count = math.ceil(score_seconds / INSTRUMENTAL_LYRIC_SECONDS)
+            count = max(
+                MIN_INSTRUMENTAL_LYRIC_SECTIONS,
+                min(MAX_INSTRUMENTAL_LYRIC_SECTIONS, count),
+            )
+        else:
+            count = DEFAULT_INSTRUMENTAL_LYRIC_SECTIONS
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "score",
+                    None,
+                    "Lyrics duration",
+                    "Total duration is unknown for a partial ABC result.",
+                    f"Use {DEFAULT_INSTRUMENTAL_LYRIC_SECTIONS} Instrumental Lyrics sections.",
+                    "unknown_instrumental_duration",
+                )
+            )
+        lyrics_sections = ["Intro", *("Instrumental" for _ in range(count)), "Outro"]
+        diagnostics.append(
+            Diagnostic(
+                "warning",
+                "score",
+                None,
+                "Lyrics mode",
+                "Generated instrumental Lyrics may not match ABC section comments or pass "
+                "YuE2's strict instrumental checker.",
+                "Review Lyrics against the ABC score before using the strict instrumental request checker.",
+                "instrumental_lyrics_may_not_match_abc",
+            )
+        )
+    else:
+        raise ScoreError(f"Unsupported lyrics mode {lyrics_mode!r}.")
+
+    lyrics = "\n".join(f"[{section}]" for section in lyrics_sections)
+    return lyrics, section_comment_overrides, diagnostics, add_fallback_comments
+
+
+def _rewrite_raw_section_comments(
+    abc: str,
+    section_comment_overrides: dict[int, str | None],
+    add_fallback_section_comments: bool,
+) -> str:
+    """Change only standalone section comments in an otherwise raw fallback string."""
+    lines = abc.splitlines(keepends=True)
+    for line_index, section in section_comment_overrides.items():
+        if not 0 <= line_index < len(lines):
             continue
-        name = re.sub(r"\s+", " ", match.group(1).strip().lower())
-        name = SECTION_ALIASES.get(name, name)
-        if name in KNOWN_SECTIONS:
-            sections.append(name)
-    return sections or ["intro", "outro"]
+        line = lines[line_index]
+        ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        lines[line_index] = f"% {section}{ending}" if section is not None else ending
+    if add_fallback_section_comments:
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        first_voice = next(
+            (index for index, line in enumerate(lines) if VOICE_PATTERN.fullmatch(line.strip())),
+            len(lines),
+        )
+        lines.insert(first_voice, f"% Intro{newline}")
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines[-1] += newline
+        lines.append(f"% Outro{newline}")
+    return "".join(lines)
 
 
 class ABCScoreParser:
@@ -2280,7 +2457,8 @@ def _transfer_melody(
                     measure_index=note.measure_index,
                     line_number=note.line_number,
                     pitch=note.pitch,
-                    spelling=_pitch_to_token(note.pitch or 0),
+                    spelling=note.spelling,
+                    accidental=note.accidental,
                     source_order=note.source_order,
                 )
                 result.append(transferred)
@@ -2305,7 +2483,8 @@ def _transfer_melody(
                     measure_index=note.measure_index,
                     line_number=note.line_number,
                     pitch=note.pitch,
-                    spelling=_pitch_to_token(note.pitch or 0),
+                    spelling=note.spelling,
+                    accidental=note.accidental,
                     source_order=note.source_order,
                 )
             )
@@ -2319,7 +2498,8 @@ def _transfer_melody(
                 measure_index=note.measure_index,
                 line_number=note.line_number,
                 pitch=note.pitch,
-                spelling=_pitch_to_token(note.pitch or 0),
+                spelling=note.spelling,
+                accidental=note.accidental,
                 source_order=note.source_order,
             )
         )
@@ -2390,8 +2570,9 @@ def _format_supported_note(
     duration: Fraction,
     note_length: Fraction,
     tie_after: bool,
+    continuation_spelling: str | None = None,
 ) -> str:
-    """Format a pitched duration with supported units and ties between exact chunks."""
+    """Format a pitched duration, retaining accidental state across tied chunks."""
     parts = _duration_parts(duration, note_length)
     if parts is None:
         return spelling + _format_length(duration, note_length) + ("-" if tie_after else "")
@@ -2399,7 +2580,8 @@ def _format_supported_note(
     for index, part in enumerate(parts):
         suffix = "" if part == 1 else str(part)
         continues = index + 1 < len(parts) or tie_after
-        tokens.append(f"{spelling}{suffix}{'-' if continues else ''}")
+        note_spelling = spelling if index == 0 or continuation_spelling is None else continuation_spelling
+        tokens.append(f"{note_spelling}{suffix}{'-' if continues else ''}")
     return "".join(tokens)
 
 
@@ -2411,10 +2593,119 @@ def _format_supported_rest(duration: Fraction, note_length: Fraction) -> str:
     return "".join("z" + ("" if part == 1 else str(part)) for part in parts)
 
 
+def _serialize_note_spelling(
+    note: ScoreEvent,
+    measure: Measure,
+    measure_accidentals: dict[str, int],
+    preserve_source_accidental: bool,
+    diagnostics: list[Diagnostic] | None,
+) -> tuple[str, str]:
+    """Choose the source note spelling and only add accidentals needed for its exact pitch."""
+    if note.pitch is None:
+        raise ScoreError("A pitched note event has no MIDI pitch.")
+    match = re.fullmatch(r"(?P<note>[A-Ga-g])(?P<octave>[' ,]*)", note.spelling)
+    if match is None:
+        fallback = _pitch_to_token(note.pitch)
+        fallback_match = NOTE_PATTERN.fullmatch(fallback)
+        if fallback_match is None:
+            raise ScoreError(f"Unable to spell MIDI pitch {note.pitch} as ABC.")
+        accidental = fallback_match.group("acc") or ""
+        base_spelling = fallback_match.group("note") + fallback_match.group("oct")
+        measure_accidentals[base_spelling[0].upper()] = {
+            "=": 0,
+            "^": 1,
+            "^^": 2,
+            "_": -1,
+            "__": -2,
+        }.get(accidental, 0)
+        if diagnostics is not None:
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    note.voice,
+                    note.measure_index + 1,
+                    f"line {note.line_number}",
+                    f"Source spelling {note.spelling!r} cannot represent MIDI pitch {note.pitch}.",
+                    f"Use the minimal supported alternative {fallback!r}.",
+                    "source_spelling_fallback",
+                )
+            )
+        return fallback, base_spelling
+
+    letter_token = match.group("note")
+    letter = letter_token.upper()
+    octave_marks = match.group("octave").replace(" ", "")
+    natural_pitch = MIDI_C4 + NATURAL_PITCHES[letter]
+    if letter_token.islower():
+        natural_pitch += SEMITONES_PER_OCTAVE
+    natural_pitch += SEMITONES_PER_OCTAVE * (
+        octave_marks.count("'") - octave_marks.count(",")
+    )
+    alteration = note.pitch - natural_pitch
+    accidental_symbols = {0: "=", 1: "^", 2: "^^", -1: "_", -2: "__"}
+    if alteration not in accidental_symbols:
+        fallback = _pitch_to_token(note.pitch)
+        fallback_match = NOTE_PATTERN.fullmatch(fallback)
+        if fallback_match is None:
+            raise ScoreError(f"Unable to spell MIDI pitch {note.pitch} as ABC.")
+        fallback_base = fallback_match.group("note") + fallback_match.group("oct").replace(" ", "")
+        accidental = fallback_match.group("acc") or ""
+        measure_accidentals[fallback_match.group("note").upper()] = {
+            "=": 0,
+            "^": 1,
+            "^^": 2,
+            "_": -1,
+            "__": -2,
+        }.get(accidental, 0)
+        if diagnostics is not None:
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    note.voice,
+                    note.measure_index + 1,
+                    f"line {note.line_number}",
+                    f"Source spelling {note.spelling!r} requires unsupported alteration {alteration}.",
+                    f"Use the minimal supported alternative {fallback!r} for MIDI pitch {note.pitch}.",
+                    "source_spelling_fallback",
+                )
+            )
+        return fallback, fallback_base
+
+    key_signature = _parse_key_signature(measure.key)
+    current_alteration = measure_accidentals.get(letter, key_signature[letter])
+    source_accidental = note.accidental if preserve_source_accidental else None
+    source_values = {"=": 0, "^": 1, "^^": 2, "_": -1, "__": -2}
+    if source_accidental is not None and source_values.get(source_accidental) == alteration:
+        accidental = source_accidental
+    elif current_alteration == alteration:
+        accidental = ""
+    else:
+        accidental = accidental_symbols[alteration]
+    if accidental:
+        measure_accidentals[letter] = source_values[accidental]
+    source_spelling = letter_token + octave_marks
+    if diagnostics is not None and accidental and accidental != source_accidental:
+        diagnostics.append(
+            Diagnostic(
+                "warning",
+                note.voice,
+                note.measure_index + 1,
+                f"line {note.line_number}",
+                f"Added accidental {accidental!r} to keep MIDI pitch {note.pitch} after output ordering "
+                "or key changes.",
+                f"Retain source spelling {source_spelling!r} and emit the accidental required by the "
+                "output context.",
+                "source_spelling_accidental_adjusted",
+            )
+        )
+    return accidental + source_spelling, source_spelling
+
+
 def _render_measure(
     measure: Measure,
     events: list[ScoreEvent],
     chords: list[ScoreEvent],
+    spelling_diagnostics: list[Diagnostic] | None = None,
 ) -> str:
     """Render one measure from absolute events, retaining chord timing."""
     start = measure.onset
@@ -2436,6 +2727,7 @@ def _render_measure(
     boundaries = sorted(note_boundaries)
     pieces: list[str] = []
     has_note_or_chord = False
+    measure_accidentals: dict[str, int] = {}
     for position, next_position in zip(boundaries, boundaries[1:]):
         chord_text = "".join(chord_positions.get(position, []))
         if chord_text:
@@ -2451,12 +2743,20 @@ def _render_measure(
             note = active_notes[0]
             has_note_or_chord = True
             continues = note.onset + note.duration > next_position
+            spelling, continuation_spelling = _serialize_note_spelling(
+                note,
+                measure,
+                measure_accidentals,
+                position == note.onset,
+                spelling_diagnostics,
+            )
             pieces.append(
                 _format_supported_note(
-                    _pitch_to_token(note.pitch or 0),
+                    spelling,
                     next_position - position,
                     measure.note_length,
                     continues,
+                    continuation_spelling,
                 )
             )
         else:
@@ -2543,6 +2843,9 @@ def _render_score(
     score: ParsedScore,
     instrumental_notes: list[ScoreEvent],
     vocal_notes: list[ScoreEvent] | None = None,
+    section_comment_overrides: dict[int, str | None] | None = None,
+    add_fallback_section_comments: bool = False,
+    spelling_diagnostics: list[Diagnostic] | None = None,
 ) -> str:
     """Serialize aligned one-to-four-bar voice groups in exact ABC timelines."""
     grid = _build_grid(score)
@@ -2594,6 +2897,8 @@ def _render_score(
         if line.lstrip().startswith("%")
     ]
     for line_index, comment in source_comments:
+        if section_comment_overrides is not None and line_index in section_comment_overrides:
+            comment = section_comment_overrides[line_index] or ""
         target = next(
             (record for record in score.line_records if record.line_index > line_index),
             None,
@@ -2613,6 +2918,12 @@ def _render_score(
         )
         if target is not None:
             comments_by_measure.setdefault(record_offsets[target.line_index], []).append(comment.strip())
+
+    if add_fallback_section_comments:
+        comments_by_measure.setdefault(0, []).insert(0, "Intro")
+        trailing_section_comments = ["Outro"]
+    else:
+        trailing_section_comments = []
 
     output_lines = list(header)
     metadata = {
@@ -2638,17 +2949,21 @@ def _render_score(
         fields, metadata["vocal"] = _metadata_field_lines(measures[0], metadata["vocal"])
         output_lines.extend(fields)
         vocal_bars = [
-            _render_measure(measure, vocal_notes or [], vocal_chords)
+            _render_measure(measure, vocal_notes or [], vocal_chords, spelling_diagnostics)
             for measure in measures
         ]
         output_lines.append("|".join(_compress_measure_rests(vocal_bars)) + "|")
         output_lines.append("V: Ins")
         fields, metadata["ins"] = _metadata_field_lines(measures[0], metadata["ins"])
         output_lines.extend(fields)
-        ins_bars = [_render_measure(measure, instrumental_notes, []) for measure in measures]
+        ins_bars = [
+            _render_measure(measure, instrumental_notes, [], spelling_diagnostics)
+            for measure in measures
+        ]
         output_lines.append("|".join(_compress_measure_rests(ins_bars)) + "|")
         index = end
 
+    output_lines.extend(f"% {comment}" for comment in trailing_section_comments)
     result = score.newline.join(output_lines) + score.newline
     return result
 
@@ -2698,7 +3013,7 @@ def _score_seconds(score: ParsedScore) -> float:
 def _verify_result(
     abc: str,
     max_repair_units: int,
-    original_ins: list[tuple[Fraction, Fraction, int, bool]],
+    original_ins: list[tuple[Fraction, Fraction, int, bool, str]],
     original_chords: list[tuple[Fraction, str]],
     preserve_ins: bool,
 ) -> None:
@@ -2729,7 +3044,7 @@ def _verify_result(
     _assert_monophonic(ins_notes, "Ins")
     if preserve_ins:
         final_ins = Counter(
-            (event.onset, event.duration, event.pitch or 0, event.tied_after)
+            (event.onset, event.duration, event.pitch or 0, event.tied_after, event.spelling)
             for event in ins_notes
         )
         if Counter(original_ins) - final_ins:
@@ -2740,12 +3055,12 @@ def _convert_abc_checked(
     abc: str,
     repair_mode: RepairMode = "extended",
     melody_policy: MelodyPolicy = "instrumental_priority",
-    lyrics_mode: str = "sections_only",
+    lyrics_mode: LyricsMode = "sections_only",
     padding_seconds: float = DEFAULT_PADDING_SECONDS,
     max_repair_units: int = DEFAULT_MAX_REPAIR_UNITS,
 ) -> ConversionResult:
     """Convert one ABC score and validate its serialized representation."""
-    if lyrics_mode != "sections_only":
+    if lyrics_mode not in {"sections_only", "empty", "instrumental_sections", "instrumental_only"}:
         raise ScoreError(f"Unsupported lyrics mode {lyrics_mode!r}.")
     if max_repair_units > MAX_REPAIR_UNIT_LIMIT:
         raise ScoreError(f"max_repair_units must not exceed {MAX_REPAIR_UNIT_LIMIT}.")
@@ -2759,7 +3074,7 @@ def _convert_abc_checked(
     ins_before = [event for event in score.voices["ins"].events if event.kind == "note"]
     vocal_before = [event for event in score.voices["vocal"].events if event.kind == "note"]
     original_ins = [
-        (event.onset, event.duration, event.pitch or 0, event.tied_after)
+        (event.onset, event.duration, event.pitch or 0, event.tied_after, event.spelling)
         for event in ins_before
     ]
     original_chords = [
@@ -2769,8 +3084,22 @@ def _convert_abc_checked(
         if event.kind == "chord"
     ]
     original_chords.sort(key=lambda item: (item[0], item[1]))
+    score_seconds = _score_seconds(score)
+    lyrics, section_comment_overrides, lyrics_diagnostics, add_fallback_section_comments = _build_lyrics(
+        score.sections,
+        score.source_lines,
+        lyrics_mode,
+        score_seconds,
+        True,
+    )
     try:
-        repaired = _render_score(score, ins_before, vocal_before)
+        repaired = _render_score(
+            score,
+            ins_before,
+            vocal_before,
+            section_comment_overrides,
+            add_fallback_section_comments,
+        )
     except Exception as exc:
         repaired = ""
         parser.candidate_log.append(
@@ -2785,7 +3114,14 @@ def _convert_abc_checked(
         )
 
     instrumental_notes, transfer_stats = _transfer_melody(score, melody_policy)
-    converted = _render_score(score, instrumental_notes)
+    spelling_diagnostics: list[Diagnostic] = []
+    converted = _render_score(
+        score,
+        instrumental_notes,
+        section_comment_overrides=section_comment_overrides,
+        add_fallback_section_comments=add_fallback_section_comments,
+        spelling_diagnostics=spelling_diagnostics,
+    )
     ins_repairs_that_change_notes = [
         item
         for item in score.diagnostics
@@ -2815,7 +3151,6 @@ def _convert_abc_checked(
     transfer_stats["ins_preservation_verified"] = int(preserve_ins)
     _verify_result(converted, max_repair_units, original_ins, original_chords, preserve_ins)
 
-    score_seconds = _score_seconds(score)
     max_duration = float(
         max(
             MIN_MAX_DURATION_SECONDS,
@@ -2824,7 +3159,6 @@ def _convert_abc_checked(
     )
     grid = _build_grid(score)
     sections = score.sections
-    lyrics = "\n".join(f"[{section}]" for section in sections)
     initial_tempo = score.tempos[0]
     bpm = initial_tempo.bpm
     transfer_description = (
@@ -2837,7 +3171,7 @@ def _convert_abc_checked(
         f"{bpm:g} BPM | {len(grid)} bars | theoretical {score_seconds:.2f}s | "
         f"max_duration {max_duration:.1f}s | sections: {' > '.join(sections)} | {transfer_description}"
     )
-    diagnostics = list(score.diagnostics)
+    diagnostics = [*score.diagnostics, *spelling_diagnostics, *lyrics_diagnostics]
     warnings = json.dumps(
         {
             "diagnostics": [item.to_dict() for item in diagnostics],
@@ -2880,7 +3214,1347 @@ def _convert_abc_checked(
     )
 
 
-def _partial_raw_result(abc: str, mode: str, reason: str) -> ConversionResult:
+class _SmartRecoveryStrategy:
+    """Search a bounded set of source-preserving musical repair hypotheses."""
+
+    def __init__(
+        self,
+        repair_mode: RepairMode,
+        melody_policy: MelodyPolicy,
+        lyrics_mode: LyricsMode,
+        padding_seconds: float,
+        max_repair_units: int,
+    ) -> None:
+        """Keep the validated conversion settings for candidate evaluation."""
+        self.repair_mode = repair_mode
+        self.melody_policy = melody_policy
+        self.lyrics_mode = lyrics_mode
+        self.padding_seconds = padding_seconds
+        self.max_repair_units = max_repair_units
+
+    def run(self, abc: str, initial_error: str) -> ConversionResult:
+        """Try ranked text candidates, then structural partial conversion, then raw fallback."""
+        started = time.perf_counter()
+        candidate_log: list[dict[str, object]] = [
+            {
+                "type": "smart_search",
+                "status": "started",
+                "strategy": "bounded_text_beam",
+                "initial_extended_error": initial_error,
+                "max_depth": MAX_SMART_DEPTH,
+                "max_candidates": MAX_SMART_CANDIDATES,
+                "beam_width": MAX_SMART_BEAM_WIDTH,
+                "time_limit_seconds": MAX_SMART_SECONDS,
+            }
+        ]
+        beam: list[tuple[str, tuple[str, ...], tuple[int, int, int]]] = [(abc, (), (0, 0, 0))]
+        seen = {abc}
+        attempts = 0
+        for depth in range(MAX_SMART_DEPTH):
+            next_beam: list[tuple[str, tuple[str, ...], tuple[int, int, int]]] = []
+            successes: list[tuple[tuple[int, ...], ConversionResult, list[str]]] = []
+            for current_text, applied, total_cost in beam:
+                if time.perf_counter() - started >= MAX_SMART_SECONDS:
+                    break
+                parser = ABCScoreParser("extended", self.max_repair_units)
+                parse_error = ""
+                try:
+                    parser.parse(current_text)
+                except ScoreError as exc:
+                    parse_error = str(exc)
+                try:
+                    proposals = self._generate_candidates(current_text, parser, parse_error)
+                except Exception as exc:
+                    LOGGER.error(
+                        f"Unable to generate smart repair candidates: {exc}\n{traceback.format_exc()}"
+                    )
+                    candidate_log.append(
+                        {
+                            "type": "smart_candidate_generation",
+                            "status": "error",
+                            "reason": str(exc),
+                        }
+                    )
+                    proposals = []
+                for proposal in proposals:
+                    if proposal.text in seen:
+                        continue
+                    if attempts >= MAX_SMART_CANDIDATES:
+                        break
+                    if time.perf_counter() - started >= MAX_SMART_SECONDS:
+                        break
+                    seen.add(proposal.text)
+                    attempts += 1
+                    candidate_id = f"smart-{attempts:03d}"
+                    reasons = applied + (proposal.reason,)
+                    cost = tuple(left + right for left, right in zip(total_cost, proposal.cost))
+                    try:
+                        result = _convert_abc_checked(
+                            proposal.text,
+                            self.repair_mode,
+                            self.melody_policy,
+                            self.lyrics_mode,
+                            self.padding_seconds,
+                            self.max_repair_units,
+                        )
+                    except ScoreError as exc:
+                        candidate_log.append(
+                            {
+                                "type": "smart_candidate",
+                                "candidate_id": candidate_id,
+                                "depth": depth + 1,
+                                "category": proposal.category,
+                                "status": "rejected",
+                                "reason": str(exc),
+                                "patch": proposal.reason,
+                                "patch_cost": list(proposal.cost),
+                                "changed_character_count": _changed_character_count(current_text, proposal.text),
+                            }
+                        )
+                        if depth + 1 < MAX_SMART_DEPTH:
+                            next_beam.append((proposal.text, reasons, cost))
+                        continue
+                    except Exception as exc:
+                        LOGGER.error(
+                            f"Unexpected smart candidate failure for {candidate_id}: {exc}\n"
+                            f"{traceback.format_exc()}"
+                        )
+                        candidate_log.append(
+                            {
+                                "type": "smart_candidate",
+                                "candidate_id": candidate_id,
+                                "depth": depth + 1,
+                                "category": proposal.category,
+                                "status": "error",
+                                "reason": str(exc),
+                                "patch": proposal.reason,
+                            }
+                        )
+                        continue
+                    warning_details = json.loads(result.warnings) if result.warnings else {}
+                    transfer = warning_details.get("transfer", {})
+                    try:
+                        candidate_parser = ABCScoreParser("extended", self.max_repair_units)
+                        candidate_score = candidate_parser.parse(proposal.text)
+                        vocal_grid = [
+                            (item.onset, item.duration, item.meter, item.key)
+                            for item in candidate_score.voices["vocal"].measures
+                        ]
+                        ins_grid = [
+                            (item.onset, item.duration, item.meter, item.key)
+                            for item in candidate_score.voices["ins"].measures
+                        ]
+                        grid_mismatch = int(vocal_grid != ins_grid)
+                        synthetic_rest_count = sum(
+                            item.repair.startswith("Append a rest")
+                            for item in candidate_score.diagnostics
+                        )
+                    except ScoreError as exc:
+                        grid_mismatch = 1
+                        synthetic_rest_count = 0
+                        candidate_log.append(
+                            {
+                                "type": "smart_candidate_scoring",
+                                "candidate_id": candidate_id,
+                                "status": "partial",
+                                "reason": str(exc),
+                            }
+                        )
+                    validation_score = (
+                        int(transfer.get("ins_notes_changed", 0))
+                        + int(transfer.get("ins_notes_repaired", 0)),
+                        grid_mismatch,
+                        synthetic_rest_count,
+                        int(transfer.get("not_transferred", 0)),
+                        result.repair_count,
+                        cost[0],
+                        cost[1],
+                        cost[2],
+                    )
+                    successes.append((validation_score, result, list(reasons)))
+                    candidate_log.append(
+                        {
+                            "type": "smart_candidate",
+                            "candidate_id": candidate_id,
+                            "depth": depth + 1,
+                            "category": proposal.category,
+                            "status": "accepted",
+                            "reason": "Internal strict serialization validation passed.",
+                            "patch": proposal.reason,
+                            "patch_cost": list(proposal.cost),
+                            "validation_score": list(validation_score),
+                        }
+                    )
+                if attempts >= MAX_SMART_CANDIDATES or time.perf_counter() - started >= MAX_SMART_SECONDS:
+                    break
+            if successes:
+                _, result, reasons = min(successes, key=lambda item: item[0])
+                self._mark_smart_recovered(result, candidate_log, reasons, attempts)
+                return result
+            next_beam.sort(key=lambda item: (len(item[1]), item[2], item[0]))
+            beam = next_beam[:MAX_SMART_BEAM_WIDTH]
+            if not beam or attempts >= MAX_SMART_CANDIDATES:
+                break
+        elapsed = time.perf_counter() - started
+        candidate_log.append(
+            {
+                "type": "smart_search",
+                "status": "exhausted",
+                "candidates_checked": attempts,
+                "elapsed_seconds": round(elapsed, 6),
+                "reason": "No candidate passed internal strict validation.",
+            }
+        )
+        try:
+            partial = _smart_partial_result(
+                abc,
+                initial_error,
+                self.melody_policy,
+                self.max_repair_units,
+                candidate_log,
+                self.lyrics_mode,
+            )
+        except Exception as exc:
+            LOGGER.error(f"Unable to create SMART_PARTIAL result: {exc}\n{traceback.format_exc()}")
+            candidate_log.append(
+                {"type": "smart_partial", "status": "error", "reason": str(exc)}
+            )
+            partial = None
+        return partial if partial is not None else _partial_raw_result(
+            abc,
+            "smart",
+            initial_error,
+            candidate_log,
+            self.lyrics_mode,
+        )
+
+    def _mark_smart_recovered(
+        self,
+        result: ConversionResult,
+        candidate_log: list[dict[str, object]],
+        reasons: list[str],
+        attempts: int,
+    ) -> None:
+        """Mark a candidate as fully recovered and attach its search evidence."""
+        result.conversion_status = "SMART_RECOVERED"
+        result.candidate_log = [*result.candidate_log, *candidate_log]
+        details = json.loads(result.warnings) if result.warnings else {}
+        conversion = details.get("conversion", {})
+        event_modifications = sum(
+            1
+            for reason in reasons
+            if "extend the last tied note" in reason.lower()
+            or "shorten the crossing note" in reason.lower()
+        )
+        result.diagnostics.extend(
+            Diagnostic(
+                "warning",
+                "score",
+                None,
+                "smart search",
+                "The bounded smart search selected a source-text repair hypothesis.",
+                reason,
+                "smart_hypothesis",
+            )
+            for reason in reasons
+        )
+        result.repair_count += len(reasons)
+        details["diagnostics"] = [item.to_dict() for item in result.diagnostics]
+        conversion.update(
+            {
+                "conversion_status": "SMART_RECOVERED",
+                "mode": "smart",
+                "recovery_strategy": "bounded_text_beam",
+                "candidate_count": attempts,
+                "selected_hypotheses": reasons,
+                "source_musical_event_changes": {
+                    **conversion.get("source_musical_event_changes", {}),
+                    "removed": 0,
+                    "events_modified": event_modifications,
+                    "event_change_basis": "selected duration hypotheses; no event deletion is proposed",
+                },
+                "raw_source_preserved": False,
+                "unprocessed_spans": [],
+                "vocal_absence_confirmed": True,
+            }
+        )
+        details["conversion"] = conversion
+        result.warnings = json.dumps(details, ensure_ascii=False, sort_keys=True)
+        result.info = f"SMART_RECOVERED | {result.info}"
+
+    def _generate_candidates(
+        self,
+        abc: str,
+        parser: ABCScoreParser,
+        parse_error: str,
+    ) -> list[_SmartTextCandidate]:
+        """Produce deterministic syntax, timing, metadata, chord, and barline hypotheses."""
+        candidates: list[_SmartTextCandidate] = []
+        seen: set[str] = set()
+
+        def add(text: str, category: str, reason: str, cost: tuple[int, int, int]) -> None:
+            if text != abc and text not in seen:
+                seen.add(text)
+                candidates.append(_SmartTextCandidate(text, category, reason, cost))
+
+        lines = abc.splitlines()
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        candidates.extend(self._missing_meter_candidates(abc, lines, newline))
+        candidates.extend(self._quote_candidates(abc, lines, newline))
+        candidates.extend(self._metadata_candidates(abc, lines, newline))
+        for candidate in self._tied_duration_candidates(abc, parser):
+            add(candidate.text, candidate.category, candidate.reason, candidate.cost)
+        for candidate in self._overflow_candidates(abc, parser):
+            add(candidate.text, candidate.category, candidate.reason, candidate.cost)
+        for candidate in self._barline_candidates(abc, parser, lines, newline):
+            add(candidate.text, candidate.category, candidate.reason, candidate.cost)
+        candidates.extend(self._chord_candidates(abc, lines, newline))
+        for candidate in candidates:
+            if candidate.text != abc:
+                seen.add(candidate.text)
+        ordered: list[_SmartTextCandidate] = []
+        unique: set[str] = set()
+        for candidate in candidates:
+            if candidate.text not in unique:
+                ordered.append(candidate)
+                unique.add(candidate.text)
+        ordered.sort(key=lambda item: (item.cost, item.category, item.reason))
+        if parse_error:
+            LOGGER.debug(f"Smart recovery generated {len(ordered)} candidates after: {parse_error}")
+        return ordered[:MAX_SMART_BEAM_WIDTH + 4]
+
+    def _missing_meter_candidates(
+        self,
+        abc: str,
+        lines: list[str],
+        newline: str,
+    ) -> list[_SmartTextCandidate]:
+        """Offer common meter hypotheses only when the header has no M: field."""
+        headers: dict[str, str] = {}
+        key_index: int | None = None
+        for index, line in enumerate(lines):
+            match = FIELD_PATTERN.fullmatch(line)
+            if match is None:
+                continue
+            field_name, value = match.groups()
+            if field_name in ("M", "L", "Q", "K"):
+                headers[field_name] = value
+            if field_name == "K":
+                key_index = index
+                break
+        if "M" in headers or key_index is None:
+            return []
+        candidates: list[_SmartTextCandidate] = []
+        for priority, meter in enumerate(("4/4", "3/4", "2/4", "6/8", "5/4", "7/8")):
+            repaired = list(lines)
+            repaired.insert(key_index, f"M:{meter}")
+            candidates.append(
+                _SmartTextCandidate(
+                    newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else ""),
+                    "missing_meter",
+                    f"Insert M:{meter} as a meter hypothesis; score validation and cross-voice alignment.",
+                    (3, priority, len(meter)),
+                )
+            )
+        return candidates
+
+    def _quote_candidates(
+        self,
+        abc: str,
+        lines: list[str],
+        newline: str,
+    ) -> list[_SmartTextCandidate]:
+        """Try quote boundaries that retain a valid chord prefix and tokenizable suffix."""
+        candidates: list[_SmartTextCandidate] = []
+        for line_index, line in enumerate(lines):
+            code, marker, comment = line.partition("%")
+            if code.count('"') % 2 == 0:
+                continue
+            opening = code.rfind('"')
+            scan_end = min(len(code), opening + MAX_SMART_CHORD_SCAN_CHARS)
+            endpoints = [
+                match.start()
+                for match in NOTE_PATTERN.finditer(code, opening + 1, scan_end)
+            ]
+            endpoints.append(len(code))
+            valid_endpoints: list[int] = []
+            for end in endpoints:
+                if end <= opening + 1:
+                    continue
+                chord_text = code[opening:end].rstrip()
+                candidate_chord = f'{chord_text}"'
+                if (
+                    _match_chord_symbol(candidate_chord) is None
+                    or not _chord_quality_supported(candidate_chord)
+                ):
+                    continue
+                suffix = code[opening + len(chord_text):]
+                if suffix and not suffix[0].isspace() and NOTE_PATTERN.match(suffix) is None:
+                    continue
+                if suffix.strip() and not _smart_suffix_is_tokenizable(
+                    suffix,
+                    self.max_repair_units,
+                ):
+                    continue
+                valid_endpoints.append(opening + len(chord_text))
+            for endpoint in valid_endpoints[-4:]:
+                repaired_line = code[:endpoint] + '"' + code[endpoint:] + (marker + comment if marker else "")
+                repaired = list(lines)
+                repaired[line_index] = repaired_line
+                candidates.append(
+                    _SmartTextCandidate(
+                        newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else ""),
+                        "chord_quote",
+                        f"Close the unmatched chord quote on source line {line_index + 1} at a valid token boundary.",
+                        (1, len(code) - endpoint, 1),
+                    )
+                )
+                if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                    return candidates
+        return candidates
+
+    def _metadata_candidates(
+        self,
+        abc: str,
+        lines: list[str],
+        newline: str,
+    ) -> list[_SmartTextCandidate]:
+        """Repair a key accidentally labeled as a body meter or split merged metadata."""
+        candidates: list[_SmartTextCandidate] = []
+        active_voice: str | None = None
+        for line_index, line in enumerate(lines):
+            stripped = line.strip()
+            voice_match = VOICE_PATTERN.fullmatch(stripped)
+            if voice_match is not None:
+                token = voice_match.group(1).lower()
+                active_voice = token if token in ("vocal", "ins") else VOICE_ALIASES.get(token)
+                continue
+            if active_voice is None:
+                continue
+            field_match = BODY_FIELD_PREFIX_PATTERN.match(stripped)
+            if field_match is None or field_match.group(1) not in ("M", "L", "K", "Q"):
+                continue
+            field_name, raw_value = field_match.groups()
+            value = raw_value.strip()
+            if field_name == "M" and value in KEY_SIGNATURES:
+                repaired = list(lines)
+                leading = line[:len(line) - len(line.lstrip())]
+                repaired[line_index] = f"{leading}K:{value}"
+                candidates.append(
+                    _SmartTextCandidate(
+                        newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else ""),
+                        "metadata_field",
+                        f"Interpret body M:{value} as a key field because it is a supported key, not a meter.",
+                        (2, 0, len(value)),
+                    )
+                )
+                if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                    return candidates
+            prefix: str | None = None
+            if field_name == "M":
+                match = re.match(r"\d+\s*/\s*\d+", value)
+                prefix = match.group() if match else None
+            elif field_name == "L":
+                match = re.match(r"1\s*/\s*\d+", value)
+                prefix = match.group() if match else None
+            elif field_name == "Q":
+                match = TEMPO_PATTERN.match(value)
+                prefix = match.group() if match else None
+            elif field_name == "K":
+                key = next((item for item in sorted(KEY_SIGNATURES, key=len, reverse=True)
+                            if value.startswith(item)), None)
+                prefix = key
+            if not prefix:
+                continue
+            suffix = value[len(prefix):].strip()
+            if not suffix:
+                continue
+            tokens = ABCScoreParser("extended", self.max_repair_units)._tokenize_measure(
+                suffix.rstrip("|:")
+            )
+            if not tokens or any(token.kind == "unknown" for token in tokens):
+                continue
+            if not any(token.kind == "note" for token in tokens):
+                continue
+            leading = line[:len(line) - len(line.lstrip())]
+            replacement = f"{leading}{field_name}:{prefix}{newline}{leading}{suffix}"
+            repaired = list(lines)
+            repaired[line_index] = replacement
+            candidates.append(
+                _SmartTextCandidate(
+                    newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else ""),
+                    "merged_metadata",
+                    f"Split a valid {field_name}: metadata prefix from an adjacent, tokenizable music fragment.",
+                    (1, len(suffix), 1),
+                )
+            )
+            if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                return candidates
+        return candidates
+
+    def _tied_duration_candidates(
+        self,
+        abc: str,
+        parser: ABCScoreParser,
+    ) -> list[_SmartTextCandidate]:
+        """Extend only a final tied note by the exact incomplete measure deficit."""
+        candidates: list[_SmartTextCandidate] = []
+        lines = abc.splitlines()
+        for observation in parser.short_measures:
+            if not observation.ends_with_tie:
+                continue
+            voice = parser.partial_state.voices.get(observation.voice)
+            if voice is None or observation.measure_index >= len(voice.measures):
+                continue
+            measure = voice.measures[observation.measure_index]
+            record = next(
+                (
+                    item
+                    for item in parser.line_records
+                    if item.voice == observation.voice and observation.measure_index in item.measure_indices
+                ),
+                None,
+            )
+            if record is None or record.line_index >= len(lines):
+                continue
+            candidates.extend(
+                self._replace_measure_duration(
+                    abc,
+                    lines,
+                    record,
+                    observation.measure_index,
+                    measure.note_length,
+                    observation.expected_duration - observation.actual_duration,
+                    require_tie=True,
+                    category="tied_duration",
+                    reason_prefix="Extend the last tied note by the exact bar deficit",
+                )
+            )
+            if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                break
+        return candidates
+
+    def _overflow_candidates(
+        self,
+        abc: str,
+        parser: ABCScoreParser,
+    ) -> list[_SmartTextCandidate]:
+        """Shorten a crossing note only to the next barline, retaining its pitch and order."""
+        candidates: list[_SmartTextCandidate] = []
+        lines = abc.splitlines()
+        for voice_name, measure_index, _ in parser.pending_overflows:
+            voice = parser.partial_state.voices.get(voice_name)
+            if voice is None or measure_index >= len(voice.measures):
+                continue
+            measure = voice.measures[measure_index]
+            boundary = measure.onset + measure.duration
+            crossing = [
+                event
+                for event in measure.events
+                if event.kind == "note" and event.onset < boundary < event.onset + event.duration
+            ]
+            if not crossing:
+                continue
+            target = crossing[-1]
+            new_duration = boundary - target.onset
+            if new_duration <= 0:
+                continue
+            record = next(
+                (
+                    item
+                    for item in parser.line_records
+                    if item.voice == voice_name and measure_index in item.measure_indices
+                ),
+                None,
+            )
+            if record is None or record.line_index >= len(lines):
+                continue
+            candidates.extend(
+                self._replace_measure_event_duration(
+                    abc,
+                    lines,
+                    record,
+                    measure_index,
+                    target,
+                    measure.note_length,
+                    new_duration,
+                    "overfull_note",
+                    "Shorten the crossing note exactly to the barline; retain pitch, onset, and event order",
+                )
+            )
+            if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                break
+        return candidates
+
+    def _replace_measure_duration(
+        self,
+        abc: str,
+        lines: list[str],
+        record: LineRecord,
+        measure_index: int,
+        note_length: Fraction,
+        delta: Fraction,
+        require_tie: bool,
+        category: str,
+        reason_prefix: str,
+    ) -> list[_SmartTextCandidate]:
+        """Create an exact duration patch for the final note in one source measure."""
+        if delta <= 0:
+            return []
+        line = lines[record.line_index]
+        code = line.partition("%")[0]
+        segment = _source_measure_span(code, record.measure_indices.index(measure_index))
+        if segment is None:
+            return []
+        segment_start, segment_end = segment
+        segment_text = code[segment_start:segment_end]
+        parser = ABCScoreParser("extended", self.max_repair_units)
+        tokens = [token for token in parser._tokenize_measure(segment_text) if token.kind == "note"]
+        if not tokens:
+            return []
+        token = tokens[-1]
+        match = NOTE_PATTERN.fullmatch(token.raw)
+        if match is None or (require_tie and not match.group("tie")):
+            return []
+        old_multiplier = _parse_fraction(match.group("length"))
+        dots = len(match.group("dots"))
+        old_duration = note_length * old_multiplier * Fraction((2 ** (dots + 1)) - 1, 2**dots)
+        replacement = (
+            f"{match.group('acc') or ''}{match.group('note')}{match.group('oct')}"
+            f"{_format_length(old_duration + delta, note_length)}{match.group('tie')}"
+        )
+        absolute_start = line.find(code) + segment_start + token.start
+        absolute_end = absolute_start + len(token.raw)
+        candidate_line = line[:absolute_start] + replacement + line[absolute_end:]
+        repaired = list(lines)
+        repaired[record.line_index] = candidate_line
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        new_text = newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else "")
+        return [
+            _SmartTextCandidate(
+                new_text,
+                category,
+                f"{reason_prefix} by {delta} whole-note units on source line {record.line_index + 1}.",
+                (2, len(replacement) - len(token.raw), 1),
+            )
+        ]
+
+    def _replace_measure_event_duration(
+        self,
+        abc: str,
+        lines: list[str],
+        record: LineRecord,
+        measure_index: int,
+        event: ScoreEvent,
+        note_length: Fraction,
+        new_duration: Fraction,
+        category: str,
+        reason: str,
+    ) -> list[_SmartTextCandidate]:
+        """Map one parsed measure note back to its source token and change only duration."""
+        line = lines[record.line_index]
+        code = line.partition("%")[0]
+        segment = _source_measure_span(code, record.measure_indices.index(measure_index))
+        if segment is None:
+            return []
+        segment_start, segment_end = segment
+        segment_text = code[segment_start:segment_end]
+        parser = ABCScoreParser("extended", self.max_repair_units)
+        note_tokens = [token for token in parser._tokenize_measure(segment_text) if token.kind == "note"]
+        if not note_tokens:
+            return []
+        # A note crossing its own barline must be the final sounding note in that measure.
+        token = note_tokens[-1]
+        match = NOTE_PATTERN.fullmatch(token.raw)
+        if match is None:
+            return []
+        old_duration = note_length * _parse_fraction(match.group("length"))
+        dots = len(match.group("dots"))
+        old_duration *= Fraction((2 ** (dots + 1)) - 1, 2**dots)
+        source_spelling = match.group("note") + match.group("oct").replace(" ", "")
+        if source_spelling != event.spelling or old_duration != event.duration:
+            return []
+        new_tie = match.group("tie")
+        replacement = (
+            f"{match.group('acc') or ''}{match.group('note')}{match.group('oct')}"
+            f"{_format_length(new_duration, note_length)}{new_tie}"
+        )
+        absolute_start = line.find(code) + segment_start + token.start
+        absolute_end = absolute_start + len(token.raw)
+        repaired = list(lines)
+        repaired[record.line_index] = line[:absolute_start] + replacement + line[absolute_end:]
+        newline = "\r\n" if "\r\n" in abc else "\n"
+        new_text = newline.join(repaired) + (newline if abc.endswith(("\n", "\r")) else "")
+        return [
+            _SmartTextCandidate(
+                new_text,
+                category,
+                f"{reason} on source line {record.line_index + 1}.",
+                (3, len(replacement) - len(token.raw), 1),
+            )
+        ]
+
+    def _barline_candidates(
+        self,
+        abc: str,
+        parser: ABCScoreParser,
+        lines: list[str],
+        newline: str,
+    ) -> list[_SmartTextCandidate]:
+        """Insert barlines only at exact meter boundaries between parsed note tokens."""
+        try:
+            headers, _ = parser._read_header(lines)
+            initial_meter = _parse_meter(headers["M"])
+            initial_length = parser._parse_note_length(headers["L"])
+        except (ScoreError, KeyError):
+            return []
+        meters = {name: initial_meter for name in ("vocal", "ins")}
+        lengths = {name: initial_length for name in ("vocal", "ins")}
+        active_voice: str | None = None
+        repaired_lines = list(lines)
+        changes: list[str] = []
+        for line_index, line in enumerate(lines):
+            voice_match = VOICE_PATTERN.fullmatch(line.strip())
+            if voice_match is not None:
+                token = voice_match.group(1).lower()
+                active_voice = token if token in ("vocal", "ins") else VOICE_ALIASES.get(token)
+                continue
+            if active_voice is None:
+                continue
+            field_match = BODY_FIELD_PREFIX_PATTERN.match(line.strip())
+            if field_match is not None:
+                field_name, field_value = field_match.groups()
+                if field_name == "M":
+                    meter_match = METER_PATTERN.match(field_value.strip())
+                    if meter_match is not None:
+                        try:
+                            meters[active_voice] = _parse_meter(meter_match.group())
+                        except ScoreError:
+                            pass
+                elif field_name == "L":
+                    length_match = NOTE_LENGTH_PATTERN.match(field_value.strip())
+                    if length_match is not None:
+                        try:
+                            lengths[active_voice] = Fraction(1, _parse_bounded_int(
+                                length_match.group(1), "note length denominator"
+                            ))
+                        except ScoreError:
+                            pass
+                continue
+            code, marker, comment = line.partition("%")
+            if not code.strip():
+                continue
+            spans = _source_measure_spans(code)
+            insertions: list[int] = []
+            for segment_start, segment_end in spans:
+                segment = code[segment_start:segment_end].strip()
+                if not segment:
+                    continue
+                raw_start = code.find(segment, segment_start, segment_end)
+                tokens = parser._tokenize_measure(segment)
+                if not tokens or any(token.kind == "unknown" for token in tokens):
+                    continue
+                width = _measure_duration(meters[active_voice])
+                total = Fraction(0)
+                token_boundaries: list[tuple[Fraction, int]] = []
+                invalid = False
+                for token_index, token in enumerate(tokens):
+                    if token.kind != "note":
+                        continue
+                    note_match = NOTE_PATTERN.fullmatch(token.raw)
+                    if note_match is None:
+                        invalid = True
+                        break
+                    note_name = note_match.group("note")
+                    if note_name == "Z":
+                        if note_match.group("length"):
+                            invalid = True
+                            break
+                        duration = width
+                    else:
+                        multiplier = _parse_fraction(note_match.group("length"))
+                        dots = len(note_match.group("dots"))
+                        duration = lengths[active_voice] * multiplier * Fraction(
+                            (2 ** (dots + 1)) - 1,
+                            2**dots,
+                        )
+                    total += duration
+                    token_boundaries.append((total, token.end))
+                if invalid or total <= width:
+                    continue
+                if total % width:
+                    continue
+                measure_index = 0
+                for cumulative, token_end in token_boundaries:
+                    if cumulative and cumulative % width == 0 and cumulative < total:
+                        measure_index += 1
+                        insertions.append(raw_start + token_end)
+            if insertions:
+                for offset in sorted(set(insertions), reverse=True):
+                    code = code[:offset] + "|" + code[offset:]
+                repaired_lines[line_index] = code + (marker + comment if marker else "")
+                changes.append(f"Insert exact-duration barlines on source line {line_index + 1}.")
+        if not changes:
+            return []
+        return [
+            _SmartTextCandidate(
+                newline.join(repaired_lines) + (newline if abc.endswith(("\n", "\r")) else ""),
+                "missing_barline",
+                " ".join(changes),
+                (1, len(changes), 1),
+            )
+        ]
+
+    def _chord_candidates(
+        self,
+        abc: str,
+        lines: list[str],
+        newline: str,
+    ) -> list[_SmartTextCandidate]:
+        """Normalize only unambiguous slash-quality and lowercase bass spellings."""
+        candidates: list[_SmartTextCandidate] = []
+        quality_pattern = re.compile(
+            r"^(?P<root>[A-G](?:#{1,2}|b{1,2})?)/"
+            r"(?P<quality>maj7|m7b5|7sus4|sus4|sus2|dim7|m7|dim|aug|m6|6|7)$"
+        )
+        bass_pattern = re.compile(r"^(?P<root>[A-G](?:#{1,2}|b{1,2})?)/(?P<bass>[a-g])(?P<acc>#{1,2}|b{1,2})?$")
+        for line_index, line in enumerate(lines):
+            replacements: list[tuple[str, str, str]] = []
+            for match in CHORD_PATTERN.finditer(line):
+                raw = match.group()
+                content = raw[1:-1]
+                quality = quality_pattern.fullmatch(content)
+                bass = bass_pattern.fullmatch(content)
+                if quality is not None:
+                    repaired = f'"{quality.group("root")}{quality.group("quality")}"'
+                    if _match_chord_symbol(repaired) is not None:
+                        replacements.append((raw, repaired, "move a recognized chord quality after its root"))
+                elif bass is not None:
+                    repaired = f'"{bass.group("root")}/{bass.group("bass").upper()}{bass.group("acc") or ""}"'
+                    if _match_chord_symbol(repaired) is not None:
+                        replacements.append((raw, repaired, "capitalize a lower-case slash-bass note"))
+            if not replacements:
+                continue
+            repaired_line = line
+            reasons: list[str] = []
+            for original, replacement, reason in replacements:
+                repaired_line = repaired_line.replace(original, replacement, 1)
+                reasons.append(reason)
+            repaired_lines = list(lines)
+            repaired_lines[line_index] = repaired_line
+            candidates.append(
+                _SmartTextCandidate(
+                    newline.join(repaired_lines) + (newline if abc.endswith(("\n", "\r")) else ""),
+                    "chord_normalization",
+                    f"Contextually normalize chord symbol on line {line_index + 1}: {', '.join(reasons)}.",
+                    (1, len(replacements), 1),
+                )
+            )
+            if len(candidates) >= MAX_SMART_PROPOSALS_PER_CATEGORY:
+                return candidates
+        return candidates
+
+
+def _changed_character_count(original: str, candidate: str) -> int:
+    """Estimate a repair's text edit size without expensive sequence matching."""
+    common_prefix = 0
+    while common_prefix < min(len(original), len(candidate)) and original[common_prefix] == candidate[common_prefix]:
+        common_prefix += 1
+    common_suffix = 0
+    max_suffix = min(len(original) - common_prefix, len(candidate) - common_prefix)
+    while common_suffix < max_suffix and original[-common_suffix - 1] == candidate[-common_suffix - 1]:
+        common_suffix += 1
+    return (len(original) - common_prefix - common_suffix) + (len(candidate) - common_prefix - common_suffix)
+
+
+def _smart_suffix_is_tokenizable(suffix: str, max_repair_units: int) -> bool:
+    """Check a proposed chord suffix as music fragments separated by valid barlines."""
+    parser = ABCScoreParser("extended", max_repair_units)
+    measures, _, _ = parser._split_music_measures(suffix)
+    tokens = [token for measure in measures for token in parser._tokenize_measure(measure)]
+    return bool(tokens) and all(token.kind != "unknown" for token in tokens)
+
+
+def _source_measure_spans(code: str) -> list[tuple[int, int]]:
+    """Return source offsets for measure bodies, ignoring barline-like chord content."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    index = 0
+    while index < len(code):
+        if code[index] == '"':
+            chord = _match_chord_symbol(code, index)
+            if chord is not None:
+                index = chord.end()
+                continue
+        if code[index] in "|:":
+            end = index
+            while start < end and code[start].isspace():
+                start += 1
+            while end > start and code[end - 1].isspace():
+                end -= 1
+            spans.append((start, end))
+            while index < len(code) and code[index] in "|:":
+                index += 1
+            start = index
+            continue
+        index += 1
+    end = len(code)
+    while start < end and code[start].isspace():
+        start += 1
+    while end > start and code[end - 1].isspace():
+        end -= 1
+    if start < end:
+        spans.append((start, end))
+    return spans
+
+
+def _source_measure_span(code: str, measure_index: int) -> tuple[int, int] | None:
+    """Return one source measure span by zero-based index."""
+    spans = _source_measure_spans(code)
+    if measure_index < 0 or measure_index >= len(spans):
+        return None
+    return spans[measure_index]
+
+
+def _smart_partial_result(
+    abc: str,
+    reason: str,
+    melody_policy: MelodyPolicy,
+    max_repair_units: int,
+    candidate_log: list[dict[str, object]],
+    lyrics_mode: LyricsMode,
+) -> ConversionResult | None:
+    """Convert a fully aligned prefix and retain the remaining voice blocks verbatim."""
+    def reject_partial(reason_text: str) -> None:
+        """Record why a conservative structural partial was not possible."""
+        candidate_log.append(
+            {
+                "type": "smart_partial",
+                "status": "rejected",
+                "reason": reason_text,
+            }
+        )
+        LOGGER.debug(f"SMART_PARTIAL declined: {reason_text}")
+
+    lines = abc.splitlines()
+    header_reader = ABCScoreParser("extended", max_repair_units)
+    try:
+        headers, header_end = header_reader._read_header(lines)
+        initial_meter = _parse_meter(headers["M"])
+        initial_note_length = header_reader._parse_note_length(headers["L"])
+        initial_key = headers["K"]
+        _parse_key_signature(initial_key)
+        initial_tempo = _parse_tempo(headers["Q"])
+    except (ScoreError, KeyError):
+        reject_partial("The required ABC header is incomplete or invalid.")
+        return None
+    header_lines = lines[:header_end + 1]
+    bodies: dict[str, list[str]] = {"vocal": [], "ins": []}
+    blocks: dict[str, list[tuple[int, int]]] = {"vocal": [], "ins": []}
+    active_voice: str | None = None
+    active_block_start: int | None = None
+    offsets: list[int] = []
+    cursor = 0
+    for source_line in abc.splitlines(keepends=True):
+        offsets.append(cursor)
+        cursor += len(source_line)
+    offsets.append(cursor)
+    for line_index, line in enumerate(lines):
+        voice_match = VOICE_PATTERN.fullmatch(line.strip())
+        if voice_match is not None:
+            if active_voice is not None and active_block_start is not None:
+                blocks[active_voice][-1] = (active_block_start, line_index)
+            token = voice_match.group(1).lower()
+            active_voice = token if token in ("vocal", "ins") else VOICE_ALIASES.get(token)
+            active_block_start = line_index if active_voice is not None else None
+            if active_voice is not None:
+                blocks[active_voice].append((line_index, len(lines)))
+            continue
+        if active_voice is not None:
+            bodies[active_voice].append(line)
+
+    parsed_voices: dict[str, VoiceScore] = {}
+    parsed_parsers: dict[str, ABCScoreParser] = {}
+    parse_errors: dict[str, str] = {}
+    safe_counts: dict[str, int] = {}
+    measure_source_lines: dict[str, dict[int, int]] = {"vocal": {}, "ins": {}}
+    measure_source_positions: dict[str, dict[int, tuple[int, int, int]]] = {"vocal": {}, "ins": {}}
+    body_positions: dict[str, list[int]] = {"vocal": [], "ins": []}
+    active_voice = None
+    for line_index, line in enumerate(lines):
+        voice_match = VOICE_PATTERN.fullmatch(line.strip())
+        if voice_match is not None:
+            token = voice_match.group(1).lower()
+            active_voice = token if token in ("vocal", "ins") else VOICE_ALIASES.get(token)
+        elif active_voice is not None:
+            body_positions[active_voice].append(line_index)
+
+    for voice_name in ("vocal", "ins"):
+        body_lines = bodies[voice_name]
+        placeholder_voice = "Ins" if voice_name == "vocal" else "Vocal"
+        music_lines = [*header_lines, f"V: {voice_name.title()}", *body_lines]
+        if voice_name == "vocal":
+            music_lines.extend([f"V: {placeholder_voice}", "Z|"])
+        else:
+            music_lines = [*header_lines, f"V: {placeholder_voice}", "Z|", f"V: {voice_name.title()}", *body_lines]
+        parser = ABCScoreParser("extended", max_repair_units)
+        try:
+            parser.parse("\n".join(music_lines) + "\n")
+        except ScoreError as exc:
+            parse_errors[voice_name] = str(exc)
+        voice = parser.partial_state.voices.get(voice_name)
+        if voice is None:
+            continue
+        try:
+            parser._resolve_ties(voice)
+        except ScoreError:
+            continue
+        records = [item for item in parser.line_records if item.voice == voice_name]
+        complete_count = max((max(item.measure_indices, default=-1) + 1 for item in records), default=0)
+        synthetic_body_start = len(header_lines) + (1 if voice_name == "vocal" else 3)
+        for record in records:
+            body_index = record.line_index - synthetic_body_start
+            if 0 <= body_index < len(body_positions[voice_name]):
+                source_line_index = body_positions[voice_name][body_index]
+                for measure_order, measure_index in enumerate(record.measure_indices):
+                    measure_source_lines[voice_name][measure_index] = source_line_index
+                    measure_source_positions[voice_name][measure_index] = (
+                        source_line_index,
+                        measure_order,
+                        len(record.measure_indices),
+                    )
+        repaired_measure_numbers = [
+            item.measure
+            for item in parser.diagnostics
+            if item.measure is not None
+            and (
+                item.repair.startswith("Append a rest")
+                or item.repair.startswith("Keep the previous meter")
+                or item.repair.startswith("Keep the previous key")
+            )
+        ]
+        if repaired_measure_numbers:
+            complete_count = min(complete_count, min(repaired_measure_numbers) - 1)
+        if any(item.measure is None and item.code in {"possible_missing_meter_change"} for item in parser.diagnostics):
+            complete_count = 0
+        if complete_count <= 0:
+            continue
+        parsed_voices[voice_name] = voice
+        parsed_parsers[voice_name] = parser
+        safe_counts[voice_name] = min(complete_count, len(voice.measures))
+
+    if len(parsed_voices) != 2:
+        reject_partial(
+            "Aligned complete-measure prefixes were not available in both voices "
+            f"(parsed={sorted(parsed_voices)})."
+        )
+        return None
+    common_count = min(safe_counts.values())
+    for index in range(common_count):
+        vocal_measure = parsed_voices["vocal"].measures[index]
+        ins_measure = parsed_voices["ins"].measures[index]
+        if (
+            vocal_measure.onset != ins_measure.onset
+            or vocal_measure.duration != ins_measure.duration
+            or vocal_measure.meter != ins_measure.meter
+            or vocal_measure.key != ins_measure.key
+        ):
+            common_count = index
+            break
+    if common_count <= 0:
+        reject_partial("The two voices have no aligned complete-measure prefix.")
+        return None
+    prefix_end = parsed_voices["ins"].measures[common_count - 1].onset + parsed_voices["ins"].measures[
+        common_count - 1
+    ].duration
+    voices: dict[str, VoiceScore] = {}
+    for voice_name in ("vocal", "ins"):
+        source_voice = parsed_voices[voice_name]
+        measures = source_voice.measures[:common_count]
+        events = [
+            event
+            for event in source_voice.events
+            if event.measure_index < common_count and event.onset + event.duration <= prefix_end
+        ]
+        voices[voice_name] = VoiceScore(
+            name=voice_name,
+            meter=measures[-1].meter,
+            note_length=measures[-1].note_length,
+            key=measures[-1].key,
+            cursor=prefix_end,
+            measures=measures,
+            events=events,
+        )
+    try:
+        _assert_monophonic([event for event in voices["ins"].events if event.kind == "note"], "Ins")
+    except ScoreError:
+        ins_notes = sorted(
+            (event for event in voices["ins"].events if event.kind == "note"),
+            key=lambda event: (event.onset, event.source_order),
+        )
+        conflict = next(
+            (
+                current
+                for previous, current in zip(ins_notes, ins_notes[1:])
+                if previous.onset + previous.duration > current.onset
+            ),
+            None,
+        )
+        overlap_measure = conflict.measure_index if conflict is not None else 0
+        if overlap_measure <= 0:
+            reject_partial("Ins overlaps begin in the first recoverable measure.")
+            return None
+        common_count = overlap_measure
+        prefix_end = voices["ins"].measures[common_count - 1].onset + voices["ins"].measures[common_count - 1].duration
+        for voice_name in ("vocal", "ins"):
+            voices[voice_name].measures = voices[voice_name].measures[:common_count]
+            voices[voice_name].events = [
+                event
+                for event in voices[voice_name].events
+                if event.measure_index < common_count and event.onset + event.duration <= prefix_end
+            ]
+            voices[voice_name].cursor = prefix_end
+    tempo_changes: dict[Fraction, TempoChange] = {Fraction(0): initial_tempo}
+    for parser in parsed_parsers.values():
+        for tempo in parser.tempo_changes:
+            if 0 < tempo.onset < prefix_end:
+                previous = tempo_changes.get(tempo.onset)
+                if previous is not None and (previous.beat_unit, previous.bpm) != (tempo.beat_unit, tempo.bpm):
+                    reject_partial("The voices declare conflicting tempo changes in the recoverable prefix.")
+                    return None
+                tempo_changes[tempo.onset] = tempo
+    newline = "\r\n" if "\r\n" in abc else "\n"
+    partial_line_records: list[LineRecord] = []
+    for voice_name, parser in parsed_parsers.items():
+        synthetic_body_start = len(header_lines) + (1 if voice_name == "vocal" else 3)
+        for record in parser.line_records:
+            body_index = record.line_index - synthetic_body_start
+            if not 0 <= body_index < len(body_positions[voice_name]):
+                continue
+            measure_indices = [index for index in record.measure_indices if index < common_count]
+            if not measure_indices:
+                continue
+            partial_line_records.append(
+                LineRecord(
+                    body_positions[voice_name][body_index],
+                    voice_name,
+                    measure_indices,
+                    record.comment,
+                )
+            )
+    partial_line_records.sort(key=lambda item: item.line_index)
+    partial_record_offsets: dict[int, int] = {}
+    partial_cursors = {"vocal": 0, "ins": 0}
+    for record in partial_line_records:
+        partial_record_offsets[record.line_index] = partial_cursors[record.voice]
+        partial_cursors[record.voice] += len(record.measure_indices)
+    partial_section_lines = list(lines)
+    for line_index, line in enumerate(lines):
+        if SECTION_TAG_PATTERN.fullmatch(line) is None:
+            continue
+        target = next(
+            (record for record in partial_line_records if record.line_index > line_index),
+            None,
+        )
+        if target is None or partial_record_offsets[target.line_index] >= common_count:
+            partial_section_lines[line_index] = ""
+    partial_sections = _extract_sections(partial_section_lines)
+    score = ParsedScore(
+        source_lines=lines,
+        line_records=partial_line_records,
+        voices=voices,
+        diagnostics=[],
+        tempos=[tempo_changes[onset] for onset in sorted(tempo_changes)],
+        sections=partial_sections,
+        initial_meter=initial_meter,
+        initial_note_length=initial_note_length,
+        initial_key=initial_key,
+        metadata_trailing_comments={},
+        newline=newline,
+    )
+    score_seconds = _score_seconds(score)
+    lyrics, section_comment_overrides, lyrics_diagnostics, add_fallback_section_comments = _build_lyrics(
+        partial_sections,
+        partial_section_lines,
+        lyrics_mode,
+        score_seconds,
+        False,
+    )
+    spelling_diagnostics: list[Diagnostic] = []
+    try:
+        repaired = _render_score(
+            score,
+            [event for event in voices["ins"].events if event.kind == "note"],
+            [event for event in voices["vocal"].events if event.kind == "note"],
+            section_comment_overrides,
+            add_fallback_section_comments,
+        )
+        instrumental_notes, transfer = _transfer_melody(score, melody_policy)
+        converted = _render_score(
+            score,
+            instrumental_notes,
+            section_comment_overrides=section_comment_overrides,
+            add_fallback_section_comments=add_fallback_section_comments,
+            spelling_diagnostics=spelling_diagnostics,
+        )
+        _verify_result(
+            converted,
+            max_repair_units,
+            [
+                (event.onset, event.duration, event.pitch or 0, event.tied_after, event.spelling)
+                for event in voices["ins"].events
+                if event.kind == "note"
+            ],
+            [
+                (event.onset, event.chord)
+                for voice in voices.values()
+                for event in voice.events
+                if event.kind == "chord"
+            ],
+            melody_policy == "instrumental_priority",
+        )
+    except ScoreError as exc:
+        reject_partial(f"The aligned prefix could not be serialized safely: {exc}")
+        return None
+    spans: list[dict[str, object]] = []
+    for voice_name in ("vocal", "ins"):
+        voice_blocks = blocks.get(voice_name, [])
+        if not voice_blocks:
+            continue
+        safe_measure_count = common_count
+        safe_line = measure_source_lines[voice_name].get(safe_measure_count - 1, -1)
+        has_unprocessed_source = bool(parse_errors.get(voice_name)) or safe_measure_count < len(
+            parsed_voices[voice_name].measures
+        )
+        if not has_unprocessed_source:
+            continue
+        position = measure_source_positions[voice_name].get(safe_measure_count - 1)
+        for block_start, block_end in voice_blocks:
+            if block_end <= safe_line + 1:
+                continue
+            start_line = block_start
+            start_offset = offsets[block_start]
+            if block_start <= safe_line < block_end:
+                start_line = safe_line + 1
+                start_offset = offsets[start_line] if start_line < block_end else offsets[block_end]
+                if position is not None and position[0] == safe_line and position[1] + 1 < position[2]:
+                    source_line_index, measure_order, _ = position
+                    line_code = lines[source_line_index].partition("%")[0]
+                    source_spans = _source_measure_spans(line_code)
+                    if measure_order >= len(source_spans):
+                        reject_partial("Could not map the preserved suffix back to its original source line.")
+                        return None
+                    start_line = source_line_index
+                    start_offset = offsets[source_line_index] + source_spans[measure_order][1]
+            if start_offset >= offsets[block_end]:
+                continue
+            end_offset = offsets[block_end]
+            span_text = abc[start_offset:end_offset]
+            if not span_text:
+                continue
+            spans.append(
+                {
+                    "start_offset": start_offset,
+                    "end_offset": end_offset,
+                    "start_line": start_line + 1,
+                    "end_line": block_end,
+                    "text": span_text,
+                    "voice": voice_name,
+                    "reason": (
+                        "The fragment follows the last aligned, fully parsed measure "
+                        "and was retained verbatim."
+                    ),
+                }
+            )
+    spans.sort(key=lambda item: int(item["start_offset"]))
+    if not spans:
+        reject_partial("No unresolved source span remained after the converted prefix.")
+        return None
+    vocal_count = sum(event.kind == "note" for event in voices["vocal"].events)
+    modified_events = sum(
+        item.get("status") == "accepted" for item in candidate_log if item.get("type") == "smart_candidate"
+    )
+    conversion = {
+        "conversion_status": "SMART_PARTIAL",
+        "mode": "smart",
+        "recovery_strategy": "aligned_complete_measure_prefix",
+        "raw_source_preserved": False,
+        "unprocessed_spans": spans,
+        "source_musical_event_changes": {
+            "removed": 0,
+            "changed": 0,
+            "events_preserved": sum(
+                event.kind in ("note", "chord")
+                for voice in voices.values()
+                for event in voice.events
+            ),
+            "events_modified": modified_events,
+            "note": "The prefix was converted; remaining source blocks were retained verbatim in spans.",
+        },
+        "internal_validator": "partial_fragment_passed",
+        "independent_checker": "not_run",
+        "vocal_absence_confirmed": False,
+        "vocal_notes_in_preserved_prefix": vocal_count,
+        "yue2_runtime_tested": False,
+        "unknown_numeric_outputs_use_zero_sentinel": False,
+        "downstream_risk": "Only the aligned prefix was converted; retained source spans may contain Vocal notes.",
+    }
+    warnings = json.dumps(
+        {
+            "diagnostics": [item.to_dict() for item in [*lyrics_diagnostics, *spelling_diagnostics]],
+            "transfer": transfer,
+            "conversion": conversion,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    grid = _build_grid(score)
+    bpm = score.tempos[0].bpm
+    candidate_log = [
+        *candidate_log,
+        {
+            "type": "smart_partial",
+            "status": "accepted",
+            "reason": reason,
+            "aligned_measures": common_count,
+            "verbatim_spans": len(spans),
+        },
+    ]
+    diagnostic = Diagnostic(
+        "warning",
+        "score",
+        common_count,
+        "SMART_PARTIAL",
+        "Only the aligned, complete prefix could be converted.",
+        "Keep the remaining source spans verbatim and do not claim full validation or vocal absence.",
+        "smart_partial",
+    )
+    return ConversionResult(
+        converted,
+        lyrics,
+        float(max(MIN_MAX_DURATION_SECONDS, min(MAX_DURATION_SECONDS, math.ceil(score_seconds)))),
+        float(score_seconds),
+        len(grid),
+        float(bpm),
+        f"SMART_PARTIAL | {len(grid)} aligned measures converted; Vocal absence is unconfirmed.",
+        warnings,
+        modified_events,
+        [diagnostic],
+        repaired,
+        candidate_log,
+        "SMART_PARTIAL",
+        spans,
+    )
+
+
+def _partial_raw_result(
+    abc: str,
+    mode: str,
+    reason: str,
+    candidate_log: list[dict[str, object]] | None = None,
+    lyrics_mode: LyricsMode = "sections_only",
+    duration_hint: ConversionResult | None = None,
+) -> ConversionResult:
     """Return the complete input verbatim when a safe partial conversion is unavailable."""
     lines = abc.splitlines(keepends=True)
     end_line = max(1, len(lines))
@@ -2892,46 +4566,91 @@ def _partial_raw_result(abc: str, mode: str, reason: str) -> ConversionResult:
         "text": abc,
         "reason": reason,
     }
-    lyrics = "\n".join(f"[{section}]" for section in _extract_sections(abc.splitlines()))
+    lyrics, section_comment_overrides, lyrics_diagnostics, add_fallback_section_comments = _build_lyrics(
+        _extract_sections(abc.splitlines()),
+        abc.splitlines(),
+        lyrics_mode,
+        None,
+        False,
+    )
+    output_abc = (
+        _rewrite_raw_section_comments(abc, section_comment_overrides, add_fallback_section_comments)
+        if lyrics_mode == "instrumental_sections"
+        else abc
+    )
+    source_preserved = output_abc == abc
+    numeric_outputs_known = duration_hint is not None
+    max_duration = (
+        duration_hint.max_duration
+        if duration_hint is not None
+        else DEFAULT_PARTIAL_RAW_MAX_DURATION_SECONDS
+    )
+    score_seconds = duration_hint.score_seconds if duration_hint is not None else 0.0
+    bars = duration_hint.bars if duration_hint is not None else 0
+    bpm = duration_hint.bpm if duration_hint is not None else 0.0
+    numeric_output_source = "safe_parser_estimate" if numeric_outputs_known else "default_300_seconds"
+    numeric_output_note = (
+        "best-effort values from the safe parse; the raw ABC remains unvalidated"
+        if numeric_outputs_known
+        else (
+            f"duration unknown; max_duration defaulted to {DEFAULT_PARTIAL_RAW_MAX_DURATION_SECONDS:g} seconds; "
+            "score_seconds, bars, and bpm remain zero sentinels"
+        )
+    )
     warnings = json.dumps(
         {
-            "diagnostics": [],
+            "diagnostics": [item.to_dict() for item in lyrics_diagnostics],
             "transfer": {},
             "conversion": {
                 "conversion_status": "PARTIAL_RAW",
                 "mode": mode,
-                "raw_source_preserved": True,
+                "raw_source_preserved": source_preserved,
                 "unprocessed_spans": [span],
                 "source_musical_event_changes": {
                     "removed": 0,
                     "changed": 0,
-                    "note": "the complete input was returned verbatim",
+                    "note": (
+                        "the complete input was returned verbatim"
+                        if source_preserved
+                        else "the complete source was retained with section comment labels rewritten"
+                    ),
                 },
                 "internal_validator": "not_passed",
                 "independent_checker": "not_run",
                 "vocal_absence_confirmed": False,
                 "yue2_runtime_tested": False,
+                "section_comments_rewritten": not source_preserved,
+                "numeric_output_source": numeric_output_source,
+                "numeric_output_note": numeric_output_note,
                 "downstream_risk": "YuE2 may reject or misinterpret the unvalidated raw ABC.",
-                "unknown_numeric_outputs_use_zero_sentinel": True,
+                "unknown_numeric_outputs_use_zero_sentinel": not numeric_outputs_known,
             },
         },
         ensure_ascii=False,
         sort_keys=True,
     )
     return ConversionResult(
-        abc,
+        output_abc,
         lyrics,
-        0.0,
-        0.0,
-        0,
-        0.0,
-        "PARTIAL_RAW | original ABC preserved verbatim; numeric outputs are unknown (0 sentinel); "
-        "Vocal absence is not confirmed.",
+        max_duration,
+        score_seconds,
+        bars,
+        bpm,
+        "PARTIAL_RAW | "
+        + (
+            "original ABC preserved verbatim"
+            if source_preserved
+            else "original ABC retained with section comments rewritten"
+        )
+        + f"; {numeric_output_note}; Vocal absence is not confirmed.",
         warnings,
         0,
         [],
         "",
-        [{"type": "raw_fallback", "status": "preserved", "reason": reason}],
+        [
+            *(candidate_log or []),
+            {"type": "raw_fallback", "status": "preserved", "reason": reason},
+        ],
         "PARTIAL_RAW",
         [span],
     )
@@ -2941,7 +4660,7 @@ def convert_abc(
     abc: str,
     repair_mode: RepairMode = "extended",
     melody_policy: MelodyPolicy = "instrumental_priority",
-    lyrics_mode: str = "sections_only",
+    lyrics_mode: LyricsMode = "sections_only",
     padding_seconds: float = DEFAULT_PADDING_SECONDS,
     max_repair_units: int = DEFAULT_MAX_REPAIR_UNITS,
     on_unrecoverable: str = "error",
@@ -2955,7 +4674,7 @@ def convert_abc(
         raise ScoreError(f"Unknown repair mode {repair_mode!r}.")
     if melody_policy not in ("instrumental_priority", "vocal_priority", "mute_vocal_only"):
         raise ScoreError(f"Unknown melody policy {melody_policy!r}.")
-    if lyrics_mode != "sections_only":
+    if lyrics_mode not in {"sections_only", "empty", "instrumental_sections", "instrumental_only"}:
         raise ScoreError(f"Unsupported lyrics mode {lyrics_mode!r}.")
     if max_repair_units < 0:
         raise ScoreError("max_repair_units must be non-negative.")
@@ -2981,14 +4700,26 @@ def convert_abc(
     except ScoreError as exc:
         if on_unrecoverable == "error":
             raise
-        return _partial_raw_result(abc, on_unrecoverable, str(exc))
+        if on_unrecoverable == "smart":
+            strategy = _SmartRecoveryStrategy(
+                repair_mode="extended",
+                melody_policy=melody_policy,
+                lyrics_mode=lyrics_mode,
+                padding_seconds=padding_seconds,
+                max_repair_units=max_repair_units,
+            )
+            return strategy.run(abc, str(exc))
+        return _partial_raw_result(abc, on_unrecoverable, str(exc), lyrics_mode=lyrics_mode)
+
+    if result.conversion_status in {"SMART_PARTIAL", "PARTIAL_RAW", "SMART_RECOVERED"}:
+        return result
 
     if on_unrecoverable == "continue":
         uncertain_repairs = [
             item
             for item in result.diagnostics
             if item.severity == "warning"
-            and item.code != "unsupported_chord_quality"
+            and item.code not in NON_MUSICAL_WARNING_CODES
             and not item.repair.startswith((
                 "Remove the quote delimiters at token level",
                 "Insert a missing opening quote around the chord symbol",
@@ -3000,10 +4731,16 @@ def convert_abc(
         ]
         if uncertain_repairs:
             reasons = "; ".join(dict.fromkeys(item.problem for item in uncertain_repairs))
-            return _partial_raw_result(abc, on_unrecoverable, f"Continue mode declined heuristic changes: {reasons}")
+            return _partial_raw_result(
+                abc,
+                on_unrecoverable,
+                f"Continue mode declined heuristic changes: {reasons}",
+                lyrics_mode=lyrics_mode,
+                duration_hint=result,
+            )
 
     smart_repairs = any(
-        item.severity == "warning" and item.code != "unsupported_chord_quality" and item.repair
+        item.severity == "warning" and item.code not in NON_MUSICAL_WARNING_CODES and item.repair
         for item in result.diagnostics
     )
     status = "SMART_RECOVERED" if on_unrecoverable == "smart" and smart_repairs else "OK"
@@ -3050,7 +4787,7 @@ def _save_debug_artifacts(abc: str, result: ConversionResult) -> Path:
             f"Unable to decode conversion warnings for debug artifacts: {exc}\n{traceback.format_exc()}"
         )
         raise
-    partial = result.conversion_status == "PARTIAL_RAW"
+    partial = result.conversion_status in {"PARTIAL_RAW", "SMART_PARTIAL"}
     repairs = {
         "diagnostics": [diagnostic.to_dict() for diagnostic in result.diagnostics],
         "candidates": result.candidate_log,
@@ -3061,22 +4798,38 @@ def _save_debug_artifacts(abc: str, result: ConversionResult) -> Path:
     validation = {
         "status": result.conversion_status,
         "category": result.conversion_status,
-        "internal_validator": "not_passed" if partial else "passed",
+        "internal_validator": (
+            warning_details.get("conversion", {}).get("internal_validator", "not_passed")
+            if partial
+            else "passed"
+        ),
         "independent_yue_checker": "not_run",
         "yue2_runtime_tested": False,
         "source_sha256": hashlib.sha256(abc.encode("utf-8")).hexdigest(),
-        "score_seconds": None if partial else result.score_seconds,
-        "bars": None if partial else result.bars,
+        "score_seconds": (
+            result.score_seconds
+            if result.conversion_status == "SMART_PARTIAL" or not partial
+            else None
+        ),
+        "bars": result.bars if result.conversion_status == "SMART_PARTIAL" or not partial else None,
         "repairs": result.repair_count,
-        "vocal_absence_confirmed": not partial,
+        "vocal_absence_confirmed": (
+            warning_details.get("conversion", {}).get("vocal_absence_confirmed", False)
+            if partial
+            else True
+        ),
     }
     files = {
         "source.abc": abc,
         "repairs.json": json.dumps(repairs, ensure_ascii=False, indent=2, sort_keys=True),
         "validation.json": json.dumps(validation, ensure_ascii=False, indent=2, sort_keys=True),
     }
-    if partial:
+    if result.conversion_status == "PARTIAL_RAW":
         files["partial_raw.abc"] = result.abc
+    elif result.conversion_status == "SMART_PARTIAL":
+        files["repaired.abc"] = result.repaired_abc
+        files["converted.abc"] = result.abc
+        files["partial_smart.abc"] = result.abc
     else:
         files["repaired.abc"] = result.repaired_abc
         files["converted.abc"] = result.abc
@@ -3142,7 +4895,15 @@ class VHSXYuE2AutoInstrumental:
                 ),
                 "repair_mode": (
                     ["strict", "safe", "extended"],
-                    {"default": "extended", "tooltip": "Choose how malformed measures and ties are handled."},
+                    {
+                        "default": "extended",
+                        "tooltip": (
+                            "strict rejects incomplete or overfull bars and invalid ties; safe applies deterministic "
+                            "repairs such as padding short bars or trimming trailing rests; extended also tests "
+                            "bounded repairs for missing barlines, overflows, and damaged metadata. Ambiguous Ins "
+                            "changes are rejected. on_unrecoverable=smart forces extended; continue forces safe."
+                        ),
+                    },
                 ),
                 "melody_policy": (
                     ["instrumental_priority", "vocal_priority", "mute_vocal_only"],
@@ -3152,8 +4913,15 @@ class VHSXYuE2AutoInstrumental:
                     },
                 ),
                 "lyrics_mode": (
-                    ["sections_only"],
-                    {"default": "sections_only", "tooltip": "Keep section tags only; remove sung words."},
+                    ["sections_only", "empty", "instrumental_sections", "instrumental_only"],
+                    {
+                        "default": "sections_only",
+                        "tooltip": (
+                            "sections_only keeps section tags; empty returns blank Lyrics; instrumental_sections "
+                            "maps tags in ABC and Lyrics; instrumental_only generates Intro, duration-based "
+                            "Instrumental sections, and Outro without changing ABC."
+                        ),
+                    },
                 ),
                 "padding_seconds": (
                     "FLOAT",
@@ -3182,8 +4950,11 @@ class VHSXYuE2AutoInstrumental:
                     {
                         "default": "error",
                         "tooltip": (
-                            "error raises on failure; smart uses extended recovery; continue preserves the full "
-                            "raw ABC when only uncertain repairs remain."
+                            "error raises on failure; smart uses extended recovery and may return SMART_PARTIAL or "
+                            "PARTIAL_RAW; continue uses safe and returns PARTIAL_RAW for uncertain repairs. "
+                            "PARTIAL_RAW keeps the ABC; if safe parsing succeeds, durations are best-effort and "
+                            "unvalidated. If duration is unknown, max_duration defaults to 300 seconds; zero "
+                            "score_seconds, bars, or bpm values mean unknown. Vocal absence is unconfirmed."
                         ),
                     },
                 ),
@@ -3194,8 +4965,9 @@ class VHSXYuE2AutoInstrumental:
                     {
                         "default": False,
                         "tooltip": (
-                            "Save source and diagnostics under ComfyUI output. PARTIAL_RAW writes partial_raw.abc; "
-                            "validated results write repaired.abc and converted.abc."
+                            "Save source and diagnostics under ComfyUI output. SMART_PARTIAL writes partial_smart.abc; "
+                            "PARTIAL_RAW writes partial_raw.abc; validated results write repaired.abc and "
+                            "converted.abc."
                         ),
                     },
                 ),
@@ -3207,7 +4979,7 @@ class VHSXYuE2AutoInstrumental:
         abc: str,
         repair_mode: RepairMode = "extended",
         melody_policy: MelodyPolicy = "instrumental_priority",
-        lyrics_mode: str = "sections_only",
+        lyrics_mode: LyricsMode = "sections_only",
         padding_seconds: float = DEFAULT_PADDING_SECONDS,
         max_repair_units: int = DEFAULT_MAX_REPAIR_UNITS,
         on_unrecoverable: str = "error",
