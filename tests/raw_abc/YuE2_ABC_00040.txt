@@ -1,0 +1,86 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=136
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:F
+% intro
+V: Vocal
+z24z4"F"z4|"F"z32|"F"z32|"F"z32|
+V: Ins
+Z|c'8a8f8d'8|c'8a8f8d'8|c'8a8f8d'4e'4|
+V: Vocal
+"C7sus4"z32|"C7sus4"z32|"C7sus4"z32|"C7sus4"z32|
+V: Ins
+g'6g'6g'6g'6g'6g'2-|g'6g'6g'6g'6d''8-|d''4b12b16-|b16c12c''4-|
+% interlude
+V: Vocal
+"Fmaj7/C"z8"Fmaj7/A"z8"G#maj7"z8"Cm/G"z8|"G#maj7/F##"z16"G#maj7/F##"z16|"G#maj7/F##"^G,12C,12"G#/B#"_B,8-|"G#/B"B,16"Bbsus4"B,16|
+V: Ins
+c''4a12f12^d''4-|^d''16-^d''4b'12|Z2|
+V: Vocal
+"A#"B,32|"A#"B,,32|"A#"F,32|"F"C,32|
+V: Ins
+Z4|
+V: Vocal
+"Cm"_E,32|"F"F,32-|"F"F,32|"Fm(maj7)"z32|
+V: Ins
+Z3|f4c4e4f4e4f4e4c4|
+V: Vocal
+"Fm(maj7)"z32|"Fm(maj7)"z8"A#"z8"G#/A#"z8"C#"z8|"D#sus2"z8"A#/E#"z8"Fm/Ab"z16|
+V: Ins
+f'4c'4e'4c'4e'4f'4e'4c'4|^g8b8g8^c'6=c'2|_e'6d'2f'6=e'^g'6=g'2^g'6=g'2|
+% verse
+V: Vocal
+"A#m"z32|"D#m"z16"Fm/C"z8"D#/E#"z8|"G#maj7/F##"_E16"G#maj7/B#"B16-|"G#maj7/B#"B16"Bbsus2"B16-|
+V: Ins
+^g8b8g16|a16b16|Z2|
+V: Vocal
+"A#sus2"B32|"A#sus2"C,32-|"A#sus2"C,32-|
+V: Ins
+Z3|
+% interlude
+V: Vocal
+"A#sus2"C,16-"F/A"C,16-|"F/A"C,16-"C7/G"C,16-|"C7/G"C,32-|"C7/G"C,32-|
+V: Ins
+Z4|
+V: Vocal
+"G#maj7/F##"C,32-|"Gm(maj7)"C,16-"A#/B#"C,16-|"A#/C##"C,32-|"Fm/Ab"C,32-|
+V: Ins
+Z4|
+V: Vocal
+"F/A"C,8-"Am/C"C,8-"A/C#"C,8-"A#/E#"C,4z4|Z|
+V: Ins
+Z|^g'8b'8g'8^c''4e''4|
+% chorus
+V: Vocal
+"A#/B#"z32|"Fm/C"z32|"G#maj7/B#"z32|"G#maj7/B#"z32|
+V: Ins
+f'4d'4c'8d'8^c''4=c''4|f'8d'8f'8b'8|^g'4g'4g'4g'16-g'-|^g'12=g4^g6=g6f4|
+V: Vocal
+"A#sus2"z16"F/A"z16|"Fm/Ab"z16"Gm"z16|"Gm"z32|
+V: Ins
+d16c16|f16b12b2c'2|^c'32|
+% outro
+V: Vocal
+"Gm(maj7)"z32|"Gdim7"z32|"D/F#"z32|"D/F#"z32|
+V: Ins
+^C16_E16-|_E16B,16-|B,8A,2B,2A,4A,16-|A,32-|
+V: Vocal
+"D/F#"z32|"D/F#"z32|"D/F#"z8"Fm(maj7)"e''8-"Fm7/Eb"e''8-"D#maj7/C##"e''8-|
+V: Ins
+A,8a''2a''2a''4a''4a''4a''4a''4|Z|e'4e'4z24|
+V: Vocal
+M:9/8
+"D#maj7/C##"_e'''4"Cm/G"e''8-"C#maj7/E#"e''8-"D#/F##"^d''8-=e''4"Gm"d'zd'zd'-|
+V: Ins
+M:9/8
+Z|
+V: Vocal
+M:4/4
+"Gm"d'32-|"Gm"d'16-d'6zz8z|
+V: Ins
+M:4/4
+Z2|

@@ -1,0 +1,125 @@
+X:1
+T:
+M:2/4
+L:1/32
+Q:1/4=93
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:F#m
+% intro
+V: Vocal
+Z2|"F#m"z16|"F#m"z16|
+V: Ins
+Z|z4c4a4g4|f8f8|g8a8|
+V: Vocal
+"C#"z16|"C#"z16|"F#m"z16|"F#m"z8"F#"z8|
+V: Ins
+c'12b2a2|g8c'4b4|a8a8|b8c'8|
+V: Vocal
+"Bm"z16|"Bm"z16|"C#"z16|"C#"z16|
+V: Ins
+d'6e'2d'2e'2d'2c'2|d'8b4a4|g16-|g8^e4f4|
+V: Vocal
+"C#"z16|"C#"z16|"F#m"z16|"F#m"z16|
+V: Ins
+g12b2b2|a8g8|f4A,2B,2C2D2^E2G2|A4G4A4G4|
+% verse
+V: Vocal
+"F#m"c16-|"F#m"c8B4d4-|"Bm"d4c8B4-|"Bm"B12A4|
+V: Ins
+Z4|
+V: Vocal
+"E"G16-|"E"G8E4c4-|"A"c16-|"A"c4z8B,4|
+V: Ins
+Z3|z4c'2d'2c'2b2z4|
+V: Vocal
+"D"A,8F,8-|"D"F,8D,6B,2-|"G#dim7"B,16-|"G#dim7"B,16-|
+V: Ins
+Z4|
+V: Vocal
+"C#"B,16-|"C#"B,12-B,2z2|
+V: Ins
+Z|z12z2a'2|
+% interlude
+V: Vocal
+"F#m"z16|"F#m"z8"C#"z8|"C#"z16|"C#"z16|
+V: Ins
+g'8f'8|g'8a'6d''2|c''16|b'8g'4b'4|
+V: Vocal
+"F#m"z16|"F#m"z8"F#/A#"z8|"Bm"z16|"Bm"z16|
+V: Ins
+a'8f'8|b'8c''8|e''6d''2d''2e''2d''2c''2|d''4b4b4a4|
+V: Vocal
+"C#"z16|"C#"z16|"C#"z16|"C#"z16|
+V: Ins
+g4f4^e4f4|^e4=e4^e4f4|^e8c'8|^e'8g'8|
+% verse
+V: Vocal
+"F#m"c'4c'12-|"F#m"c'4a2a6d'4-|"Bm"d'12c'4-|"Bm"c'b2b12-|
+V: Ins
+Z4|
+V: Vocal
+"E"b16-|"E"b4g2g6c'4-|"A"c'12b2a2-|"A"a8-a2z2B,4|
+V: Ins
+Z4|
+V: Vocal
+"D"A,8F,8-|"D"F,8D,6B,2-|"G#dim7"B,16-|"G#dim7"B,16-|
+V: Ins
+Z4|
+V: Vocal
+"C#"B,16-|"C#"B,16-|
+V: Ins
+Z2|
+% interlude
+V: Vocal
+"F#m"B,6z8z2|Z3|
+V: Ins
+z8F8|G8A8|d12c2d2|B8A8|
+% chorus
+V: Vocal
+K:C#m
+"C#m"z16|"C#m"z16|"F#"z16|"F#"z16|
+V: Ins
+K:C#m
+G4e4e4e4|f8g8|^a12g4|^a8c'4e'4|
+V: Vocal
+"B"z16|"B"z16|"E"z16|"E"z16|
+V: Ins
+d'4f'4f'4f'4|e'8d'8|a12g2a2|g8b4d'4|
+% outro
+V: Vocal
+"A"z16|"A"z16|"C#/E#"z16|"C#/E#"z16|
+V: Ins
+c'4c'2d'2e'2d'2c'2b2|c'4a4a4b4|^e2^^f2g2^a2^b2a2g2f2|g8^B,4D4|
+V: Vocal
+"C#"z16|"C#"z16|"F#"z16|"F#"z8"G#"Z|
+V: Ins
+^E8G,8|^A,8^B,8|C,8D,8-|D,8^B,,8-|
+V: Vocal
+"G#"z8"C#m(maj7)"z8|"C#m(maj7)"z16|"C#m(maj7)"z16|
+V: Ins
+^B,,4C,12-|C,16-|C,4G,,4^B,,4D,4|
+V: Vocal
+M:3/8
+"C#m(maj7)"z12|
+V: Ins
+M:3/8
+^^F,3G3c3d3|
+V: Vocal
+M:5/8
+"C#m(maj7)"z16"C#m"z4|
+V: Ins
+M:5/8
+^^f3g3c'3d'3f'4g'4|
+V: Vocal
+M:3/8
+"C#m"z12|
+V: Ins
+M:3/8
+c''6d''6-|
+V: Vocal
+M:5/8
+"C#m"z16z4|
+V: Inschorlude
+M:5/8
+d''4e''2e''2e''2e''2e''2e''2e''2e''2|

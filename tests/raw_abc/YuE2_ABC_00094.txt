@@ -1,0 +1,45 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=130
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% intro
+V: Vocal
+z24z4"C"z4|"C"z32|"C"z32|"Fmaj7/C"z8"C"z8"G6"z8"C/E"z8|
+V: Ins
+Z|c'4g2a2b4c'4e'2e'2d'2c'2d'4e'4|f'6g'6f'6e'6d'4c'4|a8g8d8e8|
+V: Vocal
+"Fmaj7/C"z8"C"z8"G/B"z16|"Am7/C"z8"Cmaj7/G"z8"Fmaj7/A"z16|"Fmaj7/A"c''32-|"Fmaj7/A"c''16"G/B"g'16|
+V: Ins
+f8g8d16|a8b8c'16|Z2|
+% chorus
+V: Vocal
+"C"c''32-|"C"c''32-|"C"c''32|"C/E"a16"G"g16|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"F"f32-|"F"f32-|"F"f32|"G"a16g16|
+V: Ins
+Z4|
+V: Vocal
+"Dm"f32-|"Dm"f32-|"Dm"f32|"G"a16g16|
+V: Ins
+Z4|
+% verse
+V: Vocal
+"Dm"d32-|"Dm"d32-|"Dm"d32|"G"a16g16|
+V: Ins
+Z4|
+V: Vocal
+"Dm"d32-|"Dm"d32-|"Dm"d16-"Gsus4"d16|
+V: Ins
+Z3|
+% outro
+V: Vocal
+"C"c'8d'4c'4c'8b4a4|"C"g8a4g4e8f8|g8z8f'4e'4d'4c'4|z8"C"z24|
+V: Ins
+Z4|

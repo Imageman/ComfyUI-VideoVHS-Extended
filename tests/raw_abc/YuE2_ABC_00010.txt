@@ -1,0 +1,82 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=137
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+z24z4"Dm"z4|"Dm"z32|"A7"z32|"A7"z32|
+V: Ins
+Z|d8d8f8a8|g16e16|^c8c8e8g8|
+V: Vocal
+"Dm"z32|"Dm"z32|"A7/E"z16"A7/E"z16|"A7/E"z32|
+V: Ins
+f16d16|d'4^c'4d'4e'4f'4e'4d'8|^c'4=b4c'2b2a4g16|g'8g'6g'2f'8e'8|
+V: Vocal
+"Dm/F"z16"Gdim7"z8"A#dim7"z8|"Dm/A"z32|"Dm/A"f''32-|"Dm"f''32|
+V: Ins
+a'6b'6a'4g'8e''4^c''4|d''16-d''6b2^c''2=b'2_b'a'a,|Z|Z|
+% verse
+V: Vocal
+"Dm"d''32-|"Gdim7"d''16-"A#dim7"d''16-|"A7"d''32-|"A#dim7"d''16-"C"d''16-|
+V: Ins
+Z4|
+V: Vocal
+"Fmaj7/C"d''32-|"Fmaj7/C"f''32-|"Bb"f''32-|"G#dim7"f''16-"Gm/Bb"f''8-"C#dim"f''8|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"Dm"z32|"Dm"z32|"A"z32|"A#"z16"C"z16|
+V: Ins
+d'8d'8f'8a'4b'4|a'4g'4f'4g'4f'8e'8|^c'8c'8e'8g'4f'4|e'4d'16z12|
+V: Vocal
+"F/C"z32|"F/C"z32|"Bb"z32|"Bdim"z32|
+V: Ins
+c'8c'8f'4a4c4f4|g16a16|b8b16d8|_e8=e12=B,4D4F,4|
+% verse
+V: Vocal
+"Dm/A"z32|"Dm/A"z32|"A7sus4"z16"A#dim7"z16|"A7sus4"a16"A7"g16|
+V: Ins
+D,6F,6A,8D,8E,4-|E,12E,8G,4B,,8|^C,6G,6C,8B,,12|Z|
+% interlude
+V: Vocal
+"Dm"d''32-|"Gm7/D"d''32-|"Dm"d''32-|"Gm/D"d''32|
+V: Ins
+Z4|
+V: Vocal
+"Dm"z32|"Gm/D"z32|"Em7b5"z32|"A7/E"z32|
+V: Ins
+d''8d'8f'4a'4g'4^f'4|g'16e'16|^c'8e'16g'8|a'32|
+V: Vocal
+"A#"z32|"A#"z32|"D#dim7"z32|"D#dim7"z32|
+V: Ins
+b'16f'16|d'16b8f8|_e16c8f8|^f16a8^c'8|
+V: Vocal
+"G#maj7/C##"z32|"F/A"z32|"A#"z32|"A#"z32|
+V: Ins
+_e'4=e'4^g4e4_e4^c4=c4B4|c4A,16F,12|_E,16d8=e8|f16g8^g8|
+V: Vocal
+"A#"z32|"G#dim7"z16"C#/G#"z16|"Fm/Ab"z16"Fm/G"z16|"Cm/Eb"z32|
+V: Ins
+b8b4a4g4a4b4=b4|d'8d''2=b'2_b,4=B,6D,2F,2_B,2D2B,2|=B,8B,,2C,4D,6G,,4^G,,8|=B,,6_E,6G,,8E,,12|
+V: Vocal
+"F/C"z32|"C7/Bb"z32|"A#maj7/A##b"z32|"A#"z32|
+V: Ins
+C,,6F,,6A,,8C,6F,,6|E,,8=B,,,2_B,,,2E,,2E,,16-E,,,-|_E,,,5:C-=E,,,9:C7sus4"z''16=b'8-|=b'16f'16-|
+V: Vocal
+"A#maj7/E#"z32|"A#maj7/F##"z32|"A#/B#"z32|"A#/B#"z32|
+V: Ins
+f'32|^f'4^c''8d''8c''12|d''32-|d''16_e''16|
+% outro
+V: Vocal
+"Dm"d''32-|"Dm"d''16-"Em7/D"d''16-|"Em7/D"d''32|"Em7/D"z32|
+V: Ins
+Z4|
+V: Vocal
+Z4|
+V: Ins
+Z4|

@@ -1,0 +1,105 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=107
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+z24z4"Dm"z4|"Dm"z32|"Dm"z32|"Dm"z32|
+V: Ins
+Z|d'8d'8d'8d'8|a2f2A2f2a2f2A2f2a6b6g4|a8d8d'8e'8|
+V: Vocal
+"Dm"z32|"Gm"z32|"Gm"z32|"C7/G"z16"A7/C#"z16|
+V: Ins
+f'8e'8d'6c'6b4-|b16-b4a4g4^f4|g16g8f8|e16^c'8=b4_b4|
+V: Vocal
+"A7/C#"z32|"Dm"z32|"Bbmaj7/D"z32|"Bbmaj7/D"z32|
+V: Ins
+a16e16|d16A,16|B,16F,16-|F,16B,8E,8|
+% verse
+V: Vocal
+"Dsus4"z32|"Dsus4"z32|"Dsus4"z32|"Dsus4"z32|
+V: Ins
+E,16G,16-|G,8A,4=B,4^C4D4E4F4|^F32|=B,32|
+V: Vocal
+"Dsus4"z32|"Dsus4"z32|"Em/B"z32|"Em/B"z32|
+V: Ins
+=B,,8^C,8D,8E,8|^F,8=B,,8D,8=E,,8|=B,,32|=B,,8^C,8D'8c'4=b4|
+V: Vocal
+"A#m(maj7)"z32|"A#m(maj7)"z16"Gm7b5"z16|"Gdim7"z32|"Cm/Gb"z32|
+V: Ins
+a16b16-|b8d'4_e'4f'8e'4d'4|^c'16b16-|b16a8g8|
+% chorus
+V: Vocal
+"Fm7"z32|"Fm7"z16"A#"d'16-|
+V: Ins
+_e16^g16|_e'16z16|
+V: Vocal
+M:9/8
+"A#"d'24-d'4-"A#"d'8-|
+V: Ins
+M:9/8
+Z|
+% interlude
+V: Vocal
+M:5/8
+"Dm"d'16-d'4-|
+V: Ins
+M:5/8
+Z|
+V: Vocal
+M:3/4
+"Dm"d'24-|
+V: Ins
+M:3/4chorlude
+"Dm"d'24-|
+V: Vocal
+"Dsus2"d'-"Dsus2"d'd''z2"G#maj7"^c''2=c''2=b,8C,4"C#maj7"E,4|"D"^F,4D,8F,8F,4E,4|"C/E"G,32|"C/E"z32|
+V: Ins
+Z3|e16g8^f8|
+V: Vocal
+"C/E"z32|"C/E"z32|"Dm"z32|"Gdim7"z24"C#dim7"z8|
+V: Ins
+e16^c'16|=b16a8g8|f16A,,8D,4E,4|^F,4B,,16B,,12-|
+V: Vocal
+"C#dim7"z32|"C#dim7"z32|"Dsus4"z32|"Dsus4"z32|
+V: Ins
+B,,16-B,,4^c'6b6|a16e16|g16d'16|^c'16e'16|
+V: Vocal
+"Dsus4"z32|"Dsus4"z32|
+V: Ins
+d'8d'8d'8d'8|^f'8f'8f'4A,4=B,4^C4|
+% chorus
+V: Vocal
+"Dm/A"d'16"A#"=b12a4-|"A"a8-"Bb"a4b12"A"a8-|
+V: Ins
+Z2|
+% interlude
+V: Vocal
+"A"a8"Dm"d'2d''2=b''2d''2"Gm"_b''16-|"Gm"_e'''8"Dm/F"d'''2^g''2a''2d'''=g''8-"A"g''4a''4-|"A"a''8"Dm"d'2d''2=b''2d'''2"Gm"_b''16-|"Gm"_e'''8"Dm/F"=b,,,a''^g''=g''=e'''8"A"^c'''4c'''4-|
+V: Ins
+Z4|
+V: Vocal
+"A"^c'''8-"Dm(maj7)"c,,,7/Bb"z:F"z16|"A#maj7/G##"z32|"A#maj7/G##"z32|Z|
+V: Ins
+z6D6=B,16-=B,4-|=B,16F,16|B,,32|B,,32|
+% outro
+V: Vocal
+"Dsus4"z32|"Dsus4"z32|"Dsus4"z32|"Dsus4"z32|
+V: Ins
+G,16=B,16|^F,32|G,32|=B,,4^C,4D,4E,8^F,8E,4-|
+V: Vocal
+"Dsus4"z8"C#dim7"z16"C#maj7/B#"z8|"C#maj7/B#"z16"A#maj7/C##"z16|"A#maj7/C##"z16"C#"z16|"C#"z8"Fm/Ab"z8"A#m/C#"d''8-"C#/D#"d''8-|
+V: Ins
+E'8^G16=G8-|G8^F2=F2E2_E2=E8e'8|^c''16d''4b'4a'4g'4|f'4e'4_e'4^c'4z16|
+V: Vocal
+"A#maj7/E#"d''32-|"A#maj7/E#"d''32-|"A#maj7/E#"d''32-|"A#/E#"d''32-|
+V: Ins
+Z4|
+V: Vocal
+"A#/C##"d''16-"Dm"d''16-|"Dm"d''32|"Dm"z32|Z|
+V: Ins
+Z4|

@@ -1,0 +1,97 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=120
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+Z3|z4g2z6g2z16z2|
+V: Ins
+Z|d8a8a8d8|b6a6f4g16|z16g4f4e4c4|
+V: Vocal
+Z|d'32-|d'32-|d'32|
+V: Ins
+d32|Z3|
+V: Vocal
+Z4|
+V: Ins
+d'32|a4f'4e'8c'8a8|b8b4a2g16z2|c'8e'8c'6b6g4|
+V: Vocal
+Z|
+V: Ins
+b6a6f2g2a16|
+% interlude
+V: Vocal
+Z4|
+V: Ins
+A,2B,2D,2E,2F,4A,16G,2A,2|B,4G,4G,4F,16E,2D,2|^C,16E,,4G,,8F,,4-|F,,12E,,16-E,,4-|
+V: Vocal
+M:9/8
+Z|
+V: Ins
+M:9/8
+E,,16-E,,4z16|
+% verse
+V: Vocal
+M:7/8
+z16A4A8-|
+V: Ins
+M:7/8
+z12A4z12|
+V: Vocal
+M:9/8
+A3z3d3z3d8e12fz3|
+V: Ins
+M:9/8
+Z|
+V: Vocal
+M:4/4
+Z|e8e8c'8b8|b4a16z12|d'8d'8d'4c'2c'6a4-|
+V: Ins
+M:4/4
+Z4|
+V: Vocal
+a16-a4g2g2f8|g32|z2a2g2f2e8d16|^c32-|
+V: Ins
+Z4|
+V: Vocal
+^c32-|^c32|Z|
+V: Ins
+Z3|
+% interlude
+V: Vocal
+Z3|b6a6f4g16-|
+V: Ins
+D,2E,2F,4E,6D,6F,4E,4D,4|B,,16B,,6C,6^C,4|D,8A,,8D,,8z8|Z|
+V: Vocal
+g32-|g16z16|z16b'16-|b'32|
+V: Ins
+Z|z16G,12F,4|E,8A,,8z16|Z|
+% chorus
+V: Vocal
+d''32-|d''32-|d''32-|d''32|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+z8e'8c'8a'8|=b'8_b'4a'4g'12z4|^c''8e''8=c''16|=b'8_b'4=b'4^c''12z4|
+V: Ins
+Z4|
+V: Vocal
+d''32-|d''32|^c''32|=b'32|
+V: Ins
+Z4|
+V: Vocal
+Z3|
+V: Ins
+a4f'4e'8c'16|=b32|^c'32-|
+% silence
+V: Vocal
+M:9/8
+Z|
+V: Ins
+M:9/8
+^c'16-^c'd'6-d'd6z6|

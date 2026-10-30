@@ -1,0 +1,97 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=130
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Fm
+% intro
+V: Vocal
+z24z4"C"z4|"C"z32|"C"z32|"C"z32|
+V: Ins
+Z|c'6c'6c'4c'6c'6d'4|c'8g8=e8d8|c6G6G4G6G6A4|
+V: Vocal
+"C"z32|"Fm/C"z16"C7/G"z8"C7/G"z8|"Fm/Ab"z16"A#dim7"z16|"A#dim7"z32|
+V: Ins
+B8A8B8G8|f16=e12f2g2|a12b2a2g12a2b2|d'4d'4d'4b4b4g4=e4d'4|
+V: Vocal
+"A#dim7"z32|"A#dim7"z32|
+V: Ins
+d'16e'16|=e'32|
+% verse
+V: Vocal
+"Fm"c8B8A8G8|"Fm"F16C8F,8-|"Fm"F,16"Bbm"B,16-|"Bbm"B,32-|
+V: Ins
+Z4|
+V: Vocal
+"Bbm"B,32-|
+V: Ins
+Z|
+% interlude
+V: Vocal
+"Fm/C"B,32-|"C7"F,32-|"C7"F,32-|"C7"F,16-"C7/E"F,16-|
+V: Ins
+Z4|
+V: Vocal
+M:9/8
+"C/E#"F,4-"Fm(maj7)"F,-3z16z"A#dim7"z12|
+V: Ins
+M:9/8
+z6c'6b4a4g4f4=e8|
+% chorus
+V: Vocal
+M:4/4
+"A#dim7"z32|"A#dim7"z32|"A#dim7"z32|"A#dim7"z16"C#"z16|
+V: Ins
+M:4/4
+d'8b16d'8|b12d'8b12|d'8b2b2a4g4f4=e8|c'8a16c'8|
+V: Vocal
+"C#"z32|"D#7/F##"z32|"G#"z32|"G#"z16"D#/F##"z16|
+V: Ins
+a12c'8a12|_g8e'4d'4c'8=b8|=b8_b16e'8|=b16e'8d'4c'4|
+V: Vocal
+"D#/F##"z32|"D#/F##"z32|"Cm/G"z32|
+V: Ins
+=b16e'16|f'32|e''32-|
+% outro
+V: Vocal
+"Cm/G"z32|"Cm/G"z32|"Cm/G"z32|"Cm/G"z16"G#maj7/D#"z16|
+V: Ins
+e''32-|e''4C,4=E,4F,4G,4A,4B,4=B,4-|=B,4D8E16-E4-|E12D2D6C12-|
+V: Vocal
+"G#maj7/D#"z32|"G#maj7/D#"z32|"G#maj7/D#"z8"Caug"z16"Fm(maj7)"z8|"Fm(maj7)"z8"A#dim7"z16"A#dim7"z8|
+V: Ins
+C32|C,4F,4=E,4G,8A,8B,4-|B,4=B,8_B,16-B,4-|B,12A,,8G,,8F,,4-|
+V: Vocal
+"A#dim7"z32|"A#dim7"z32|"A#dim7"z8"Caug"z16"Fm(maj7)"z8|"Fm(maj7)"z16"A#dim7"z16|
+V: Ins
+F,,2=E,,6E,,8e'2e'2g'2g'8-g'2-|g'32|=b'16=e'16|f'32|
+V: Vocal
+"C/G"z32|"C/G"z32|"C/G"z32|
+V: Ins
+=e'32|Z|g4c''4=b'4_b'4=a'4_a'4g'4_g'4|
+V: Vocal
+M:9/8
+"Fm(maj7)"z32"Fm(maj7)"z4|
+V: Ins
+M:9/8
+f''3d''3c''6=b''6_b''16-_b''^e''|
+V: Vocal
+M:5/8
+"Fm(maj7)"z16z4|
+V: Ins
+M:5/8
+f''=e''f''f''f''2f''2f''8e''e'e'e'-|
+V: Vocal
+M:9/8
+"Fm(maj7)"z16"Caug"z16"A#dim7"z4|
+V: Ins
+M:9/8
+=e'16-=e'|F,12G,12A,8-|
+V: Vocal
+M:4/4
+"A#dim7"z8"Caug"z16"Fm(maj7)"z8|"Fm(maj7)"z32|"Fm(maj7)"z32|"Fm(maj7)"z32|
+V: Ins
+M:4/4
+A,8=B,8C6D6C4|=E,32|F,32|Z|

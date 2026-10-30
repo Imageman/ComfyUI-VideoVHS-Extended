@@ -1,0 +1,81 @@
+X:1
+T:
+M:4/4
+L:1/16
+Q:1/4=123
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+z8"Dm"z8|"Dm"z16|"Dm"z8"A7/C#"z8|"A7/C#"z4"C#dim7"z4"D7/F#"z8|
+V: Ins
+Z|A2A2A2d2d2e2e2f2|f6d2^c8|G4B4B4A4|
+V: Vocal
+"Gm"z16|"Gm"z8"D#maj7/F##"z8|"D#maj7/F##"z8"Gm/D"z8|"Em7b5"z16|
+V: Ins
+c6d2B8|d'4g'4g'6a'2|b'3a'g'3a'b'3a'g'3a'|b'b'a'a'b'b'a'a'b'b'a'a'b'b'd''e''|
+V: Vocal
+"A7sus4"z16|"A7sus4"z16|
+V: Ins
+e''8-e''3F,G,^G,A,^C|DEFGAB^cddef^fg^ga=c'|
+% interlude
+V: Vocal
+"A7sus4"z16|"A7sus4"z16|"Cdim7"z16|"Cdim7"z16|
+V: Ins
+a16|aazabbgafgefeeee|^f_ecefcfefcfcffce|^fc_ecfcfcfgf=feeee|
+V: Vocal
+"Bmaj7/F#"z16|"Bmaj7/F#"z8"Bmaj7/A#"z8|"A#dim7"z12"A#dim7"z4|"A#dim7"z12"F#/A#"z4|
+V: Ins
+_eB^FBeBeBeBeBeBGB|_eBGBeeBef2^f=f=e2ez|^c_ececGEGcececGEG|^cececGEG=ceefcBGE|
+V: Vocal
+"D#/F##"z8"F#aug"z8|"D#/E#"z8"Faug"z8|"D#/F##"z8"F#aug"z8|"D#/E#"z8"Cm/Eb"c'3bb3a|
+V: Ins
+_E2B2e2g2b3bg2d'2|_e'3d'b3d'e'd'd'bg^f=fd|=b_e'e'e'e'b_be'd'^c'=c'=b_bg^f=f|_eeBBGG^FFz8|
+% chorus
+V: Vocal
+"A#maj7"a4f4"Cm6"c'3bb3a|"F"a4f4"F#dim"c'3bb3a|"Gm"a4g4"E/G#"e'3d'd'3c'|"A#m"^c'4=c'bba"D#6"c'3bb3a|
+V: Ins
+Z4|
+V: Vocal
+"A#m(maj7)"a4f4"Cm6"c'3bb3a|"F"a4f4"F#dim"c'2bbb2aa|"Gm"g16-|"Gm"g16-|
+V: Ins
+Z4|
+V: Vocal
+"G#maj7"g16-|"A#sus2"g16|
+V: Ins
+Z2|
+% interlude
+V: Vocal
+"D#"z16|"D#"z16|"F/A"z16|"F/A"z16|
+V: Ins
+_eBGBeBGBeBGBeBGB|_eBGBeBGBeBGBeeBB|fcAcfcAcfcAcfcAc|fcAcfcAcfcAcffAA|
+V: Vocal
+"G#/B#"z16|"G/B"z16|"C"z8"C/D"z8|"C/E"z8"C/G"z8|
+V: Ins
+_e=BGBdBGBdBGBdBGB|d=BGBdBGBdBGBddBB|e8d8|c8G2G2^F2=F2|
+% outro
+V: Vocal
+"D#"z16|"D#"z16|"F/A"z16|"F/A"z16|
+V: Ins
+_eBGBeBGBeBGBeBGB|_eBGBeBGBeeBeeeBB|fcAcfBAcfcAcfBAc|fBAcfcAcffAccccc|
+V: Vocal
+"G#maj7/B#"z16|"G/B"z16|"Cm(maj7)"z8"Cm/D"z4"D#maj7/C##"z4|"Em7b5"z8"A#maj7/E#"z4"D#/E#"z4|
+V: Ins
+_ec=BBecBcecBBecBB|^dd=BBdd_BBddBBddBB|=BBBBBBBBBBBB_B2d2|^f2g2a2b2a4b4-|
+V: Vocal
+"D#"zz12z3|
+V: Ins
+b3aa^f=fe^cd=fg^ga=b=c'|
+V: Vocal
+M:3/4
+Z|
+V: Ins
+M:3/4
+^c'd'_e'=e'f'g'^g'a'b'4-|
+V: Vocal
+M:4/4
+Z3|
+V: Ins
+M:4/4
+b'8a'^f'=f'e'd'^c'=c'a|^gfed^c=B_BAA8-|A8z8|

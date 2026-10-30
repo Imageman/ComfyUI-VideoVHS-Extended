@@ -1,0 +1,149 @@
+X:1
+T:
+M:3/4
+L:1/32
+Q:1/4=165
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+Z4|
+V: Ins
+z8d2e2e2e2d4A4|f8f8f8|z8d2e2d2^c2d4A4|g8g8g8|
+V: Vocal
+Z4|
+V: Ins
+z8e2f2e2_e2=e4B4|a8a6b6a4|g16a4g4|f16z4A,4|
+V: Vocal
+Z|
+V: Ins
+D16-D6D2|
+% interlude
+V: Vocal
+Z3|z16A,8|
+V: Ins
+F16E2F2E2D2|^C16E8|D16G,8|F,16z8|
+% verse
+V: Vocal
+F16E4F4|^C16E8|D16G,8|F,16A,8|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+Z3|z16A,8|
+V: Ins
+D,4D,4D,,4E,,4F,,4G,,4|^G,,2A,,2B,,2=B,,2^C,2_E,2=E,2^F,2=G,2A,2_B,=B,2|=B,,2^C,2_E,4=E,2^F,,4G,,2A,,2_B,,=B,,=B,,C'4|e'8e'8z8|
+% verse
+V: Vocal
+d8d8d8-|d16c4=B4|=B16d4c4|=B8z16|
+V: Ins
+Z3|z16d'8|
+V: Vocal
+Z3|z16A,8|
+V: Ins
+a'16g'4f'4|e'16f'8|^c''16a'8|^c''16z8|
+V: Vocal
+F16E4D4|^C16E8|D16G,8|F,8z16|
+V: Ins
+Z3|z8f'2e'2_e'2d'2^c'4=c'4|
+% interlude
+V: Vocal
+Z3|z16A,4A,4|
+V: Ins
+=b2_b2a2^g2=g2^f2=f2e2_e2d2^c2=c2|=B2_B2A4=B,4E,4F,4G,4|^G,2A,4=B,,2^C,4_E,4=E,,2F,,2=G,,2G,,2|^G,,8a''8z8|
+% verse
+V: Vocal
+F16E4D4|^C16E8|D16G,8|F,16A,8|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+M:7/8
+Z3|
+V: Ins
+M:7/8
+f'16e'3d'3e'3f'-|f'3a'3d''3d''3z16|
+V: Vocal
+M:5/8
+Z|
+V: Ins
+M:5/8
+z16a'a'a'a'|
+V: Vocal
+M:3/4
+Z|
+V: Ins
+M:3/4
+b'16g'4g'4-|g'16-g'4z4|
+% silence
+V: Vocal
+Z|
+V: Ins
+b'8g2a2b2=b2c'2^c'2d'd'_e'=e'|f'8e2f2^f4^g4a4-|
+V: Vocal
+M:5/8
+Z|
+V: Ins
+M:5/8
+a2=b2^c''c''c''z6za''z^c''c''c''z|
+% interlude
+V: Vocal
+M:3/4
+K:D#m
+Z4|
+V: Ins
+M:3/4
+K:D#m
+^^C,2C,2D,2E,2F,2^^G,2A,2B,2^B,4D,2E,2|F,8d16|d8^^c8d8|^^g16e8-|
+V: Vocal
+Z4|
+V: Ins
+e16=e8-|=e16z8|=e16^^f8|f16d8|
+V: Vocal
+Z3|z16A,,4A,,4|
+V: Ins
+^^c16d'4=e'4|^b'16^^g'4a'4|a'16g'4f'4|=e'16z8|
+% verse
+V: Vocal
+F16E4D4|^^C8z8E8|D16G,8|F,8G,,2G,,2A,,2A,,2A,,2B,,2^B,,4|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+K:F#m
+C,8z16|Z3|
+V: Ins
+K:F#m
+z8c'2b2^a2=a2g2=g2f4|^e2=e2^d2=d2c4z4f'8|^e'4=e'16-e'4-|e'2d'6c''8b'8|
+V: Vocal
+Z3|z16C,8|
+V: Ins
+b'16a'4g'4-|g'16-g'd''6|^b''16g''8|=e''16z8|
+% chorus
+V: Vocal
+F,16E,4D,4|^E,16=E,8|^D,16G,,8|A,,16A,,8|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+Z3|z16F,8|
+V: Ins
+F,,4A,,4F,4C,4C,2^D,2E,2E,2|G,2^E,2F,4G,4B,,4^B,,2C,2D,2^D,2|E,,8G,,8G,,8|c''8b'8z8|
+V: Vocal
+Z3|
+V: Ins
+f'16^e'2=e'2^d'2=d'2|^b16=e'8|^d'16B8|
+V: Vocal
+M:7/8
+Z|
+V: Ins
+M:7/8
+F3B3A3c3f4a4c'4f'4-|
+% silence
+V: Vocal
+M:3/4
+Z3|
+V: Ins
+M:3/4
+f'16-f'4z4|Z2|

@@ -1,0 +1,99 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=129
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% intro
+V: Vocal
+z24z4"C"z4|"C"z32|"G/B"z32|"F/A"z32|
+V: Ins
+Z|e'8e'8e'8g'8|d'16g16|c'8c'8c'8f8|
+V: Vocal
+"C/G"z32|"Fmaj7"z32|"C/E"z32|"Dm7/F"z32|
+V: Ins
+e4f4g16G8|A16A8B8|c16G16|A4B4c16d8|
+V: Vocal
+"G7sus4"z32|
+V: Ins
+c24G,8|
+% verse
+V: Vocal
+"C"z32|"G/B"z32|"F/A"z32|"C/G"z32|
+V: Ins
+E,4G,4C16E,8|D,4G,4B,16D,8|C,4F,4A,16C,8|E,4G,4C16E,8|
+V: Vocal
+"Fmaj7/A"z32|"Am7/E"z32|"Dm7/F"z16"Dm7/A"z16|"Gsus4"z32|
+V: Ins
+F,4A,,4C16F,,4G,,4|E,,2A,,2C,4E,,2A,,2C,4E,,2A,,2C,4E,,2A,,2C,4|F,,2A,,2D,4F,,2A,,2D,4F,,2A,,2D,4F,,2A,,2D'4|c'32-|
+V: Vocal
+"G7sus4"z32|
+V: Ins
+c'16b8g8|
+% chorus
+V: Vocal
+"C"g'8g'8e'8g'8|"G/B"d'16g8z8|"F/A"c''8c''8a'8f'8|"Em/G"g'16e'16|
+V: Ins
+Z4|
+V: Vocal
+"F"a32-|"Am/E"a32-|"Dm7"a32|"Gsus4"z32|
+V: Ins
+Z3|d''16g''16|
+% interlude
+V: Vocal
+"C"z32|"G/B"z32|"Am"z32|"Cmaj7/G"z32|
+V: Ins
+e''8e''8e''8g''8|d''16g'16|c''16c''16|b'16e'16|
+V: Vocal
+"Fmaj7"z32|"Am/E"z32|"Dm7/F"z32|"Gsus4"z32|
+V: Ins
+a16b16|c'16e16|a4b4c'4d'4e'4f'4g'4a'4|g'a2f2d2B2G2F,2E,2D,2C,4B,,4A,,4G,,4|
+% outro
+V: Vocal
+"C"z32|"G/B"z32|"F/A"z32|"Em/G"z32|
+V: Ins
+E,8E,8E,8G,8|D,8B,,8D,8B,,8|C,8C,8C,8F,,8|E,,4G,,4C,4E,4B,,4G,,4E,,4G,,4|
+V: Vocal
+"Fmaj7/A"z32|"Am/E"z32|"Dm7/F"z32|"Gsus4"z32|
+V: Ins
+A,,16B,,16|C,16E,16|A,32-|A,16G16|
+V: Vocal
+"C/G"z32|"C/G"z32|"Gsus4"z32|"Gsus4"z32|
+V: Ins
+e'8e'8e'8g'8-|g'16d''16-|d''16c''16-|c''16b'16|
+V: Vocal
+"C/G"g'32-|"C/G"g'16-"Csus4"g'16-|"Csus4"g'32-|"Csus4"g'32|
+V: Ins
+Z4|
+V: Vocal
+"C#maj7/C#"z16"C#maj7/B#"z16|"C#"z32|"C#maj7/B#"z32|"C#"z32|
+V: Ins
+f8f8f8^g8|^g8g8c'8c'8|^d'8d'8d'8^g8|^g4_b4^d4f4=g4^g4b4c'4|
+V: Vocal
+"C#maj7/B#"z32|"C#/D#"z32|"G#maj7/D#"z32|
+V: Ins
+^d'4_b4c4f4^g4b4=g2^g2=g2f2|^d2_B,2D,2B,,2D,2B,,2F,2B,,2D,2B,,2F,2B,,2G,6F,2|^D,6_B,,6F,8G,12-|
+V: Vocal
+M:9/8
+"G#maj7/D#"z16"G"z16z4|
+V: Ins
+M:9/8
+G,16-G,6z12zG,,|
+V: Vocal
+M:5/8
+"G"z16"C"z4|
+V: Ins
+M:5/8
+G,,=B,,D,G,B,DGBdgbd'd'b'g''b''-|
+V: Vocal
+M:4/4
+"C"z32|"C"z32|"C"z32|"C"z32|
+V: Ins
+M:4/4
+b'16-b'6c''8-c''2-|c''16-c''6z8b'2|b'32-|b'32-|
+V: Vocal
+"C"z32|"C"z16zz16z3|
+V: Ins
+b'16-b'4g'12|Z|

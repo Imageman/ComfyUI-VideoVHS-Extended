@@ -1,0 +1,91 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=108
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% intro
+V: Vocal
+z24z4"C"z4|"C"z32|"G7"z32|"C"z32|
+V: Ins
+z24z6e'e'|e'6d'6c'6g6a4g4|d'6b6g8d'4e'2f'6|e'6d'6c'8g4a2c'6|
+V: Vocal
+"G7"z32|"C"z32|"G7"z32|"C"z16"G7sus4"z16|
+V: Ins
+b8c'8d'8f'8|e'12c''8g4a2c'6|b16d'8f'8|e'12d''8a4b2d'6|
+V: Vocal
+"Cmaj7/G"z32|
+V: Ins
+c''8b16G,8|
+% interlude
+V: Vocal
+"Cmaj7/G"z32|"Cmaj7/G"z32|"Cmaj7/G"z32|"Cmaj7/G"z32|
+V: Ins
+G,16B,16|D16F16|E12E,4A,4B,4E,4A,4|B,12D,4F,8D,8|
+% verse
+V: Vocal
+"Cmaj7/G"z32|"G7/D"z32|"Cmaj7/E"z32|"Fm(maj7)"z32|
+V: Ins
+B,,4D4D4E4F8A,4G,4-|G,16-G,4A,8B,4-|B,16-B,4G6F6|^D16^G,,8_B,,8|
+V: Vocal
+"A#m(maj7)"z32|"Fm/Ab"z32|"C/G"z32|"C/E"z32|
+V: Ins
+^C4=C8^C16^D4-|^D8=D16_B,,8|C16E8G8|^d'16c'12b2a2|
+V: Vocal
+"Fm(maj7)"z32|
+V: Ins
+g8f'8e'8d'8|
+% interlude
+V: Vocal
+"Cmaj7/G"z32|"Cmaj7/G"z32|"Cmaj7/G"z32|"Cmaj7/G"z32|
+V: Ins
+e'16b16|d'16f'16|e'16b4b4c'4a4|b8d''8f''8e''8|
+% verse
+V: Vocal
+"G#maj7/F##"z32|"G#maj7/F##"z32|"A#sus2"z32|"A#sus2"z32|
+V: Ins
+c''12d''4c''4_b'4g'4d'4|f'4_b4g4f4^d4=d8c'4|_b6a6g8B,6F,6|G,16^D,8F,8|
+V: Vocal
+"A#"sus2"z32|"A#sus2"z32|"A#"z32|"A#"z32|
+V: Ins
+F,16_B,16|^D16=D8_B,8|^D16D,4F,4^G,4_B,4|^D8=D8C16|
+V: Vocal
+"G#maj7/F##"z32|"G#maj7/F##"^D16F16|"Cm/G"G16"Cm/Eb"c16-|"Cm/Eb"c16"Fm7"f'12^d'4|
+V: Ins
+G,32|Z3|
+V: Vocal
+"C/G"g'32-|"C/G"g'32-|"C/G"g'32|
+V: Ins
+Z3|
+% interlude
+V: Vocal
+"G#maj7/F##"z32|"G#maj7/F##"z32|"A#sus2"z32|"A#sus2"z32|
+V: Ins
+e''8d''8c''8g'8|f'8_b'8g'4f'4^d'4c'4|_b16B,,4B,,4^D,4F,4|_B,4^D,4F,8B,,8B,,8|
+V: Vocal
+"A#"z32|"A#"z32|"A#""z32|"A#"z32|
+V: Ins
+_B,,16B,,16|^D,16=D,8_B,,8|^D,16=D,4F,4^G,4_B,4|^D8=D8C16|
+V: Vocal
+"G#maj7/F##"z16"Cm/Eb"z16|"Cm/Eb"z32|"Cm/Eb"z32|
+V: Ins
+G,16C16|^D16F16|G16c16-|
+% outro
+V: Vocal
+"Cm/Eb"z32|"Cm/Eb"c''2z2c''4-"Fm7"c''8_b'8^g'8-|"Fm7"^g'32-|
+V: Ins
+c16f'16|Z2|
+V: Vocal
+M:9/8
+"Fm7"^g'32-^g'4-|
+V: Ins
+M:9/8
+Z|
+V: Vocal
+M:4/4
+"Fm7"^g'12z4"C"=g'16-|"C"g'32-|"C"g'32-|"C"g'32|
+V: Ins
+M:4/4
+Z4|

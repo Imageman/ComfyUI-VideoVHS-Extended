@@ -1,0 +1,48 @@
+X:1
+T:
+M:2/4
+L:1/32
+Q:1/4=98
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% intro
+V: Vocal
+Z4|
+V: Ins
+z8e2e2e2g2|c'6b6a4|g8g4z4|a6g6f4|
+V: Vocal
+Z4|
+V: Ins
+e8e8|d6d6d4|c'6b6a4|g12-g2G,2|
+V: Vocal
+Z|
+V: Ins
+A,2B,2C2D2E4E4|
+% verse
+V: Vocal
+C6E6A,4|G,8z8|F,8A,8|G,8z8|
+V: Ins
+Z3|z8G,8|
+V: Vocal
+Z3|z12C4|
+V: Ins
+E6E6C4-|C12A,4|F16-|F12z4|
+% chorus
+V: Vocal
+C16-|C16-|C16-|C16-|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+M:3/8
+C12-|
+V: Ins
+M:3/8
+Z|
+V: Vocal
+M:5/8
+c3z16z3|
+V: Ins
+M:5/8
+Z|

@@ -1,0 +1,87 @@
+X:1
+T:
+M:4/4
+L:1/16
+Q:1/4=127
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:F
+% intro
+V: Vocal
+Z|"C7"z16|"C7"z16|"F"z8"F/A"z8|
+V: Ins
+z4c2c2d2e2d2c2|B8B8|B6Bcd3ed3c|A8A8|
+V: Vocal
+"F/A"z16|"C7/G"z8"C7/E"z8|"C7/E"z16|"F/C"z8"C7sus4"z4"C7/Bb"z4|
+V: Ins
+A6ABc3dc3A|G8G8|G6GAB3AG3E|F4DFAAc2ccB3B|
+% verse
+V: Vocal
+"F/C"z4c2c2d2e2d3c|"C7"B6GGB6GG|"C7"B6Bcd3ed3c|"F"A6FF"F/A"A6FF|
+V: Ins
+A4z12|Z3|
+V: Vocal
+"F/A"A4z2ABc3dc3A|"C7"G6EEG6EE|"C7"G4-GGGAB3AG2EE|"F/C"F8-"C7sus4"F4-"C7/Bb"F4|
+V: Ins
+Z4|
+V: Vocal
+"F/C"z12"Bm7b5"z4|
+V: Ins
+A4A=Bcc^cd_e=eg^f=fe|
+% chorus
+V: Vocal
+"C7/G"z16|"C7/G"z16|"F/A"z16|"F/A"z16|
+V: Ins
+e8e8|e6efg3fe2dd|c8f8|f6fga3gf2d2|
+V: Vocal
+"C/E"z8"Dm7/F"z8|"C/E"z16|"F/C"z8"C7sus4"z4"C7/Bb"z4|"F/C"z16|
+V: Ins
+c8d8|e8gffedccB|A8BcccBccc|A4c=Bcc^cd_e=ef^fga|
+% interlude
+V: Vocal
+"Gdim7"z16|"Gdim7"z16|"F/A"z16|"F/A"z16|
+V: Ins
+g3^ce2BGB2GEG2CB,|^C3CB,CCDEFGAB=cde|f2fcfcAGAcAGFCF,C,|A,,D,F,A,CFAcfac'c'afcA,|
+V: Vocal
+"C/G"z8"Fmaj7/A"z4"Bbsus2"z4|"C/E"z16|"F/C"z8"C7sus4"z4"C7/Bb"z4|
+V: Ins
+G,CEGcegc'e'gc'gbfaf|gecGEGBcecGECEGE|F2FFAFAFBcccdcBA|
+% verse
+V: Vocal
+"F/C"z12"Bm7b5"f3e-|"C7/G"e3zd3c-"C"c3zc3d-|"C"d3c4ze3f2g3|"F"f8"F/A"c8-|
+V: Ins
+A2ccccccdceez4|Z3|
+V: Vocal
+"F/A"c4z12|"C/G"g8-"C"g8-|"C"g8a6gg-|"Dm"gffdd12-|
+V: Ins
+Z4|
+V: Vocal
+"Dm"d4d2ddeef6|"Gm"a6g8-g2-|"Gm"g16-|"C"g6z8z2|
+V: Ins
+Z3|z6ccddddcddd|
+% chorus
+V: Vocal
+"C"z16|"Fmaj7/C"c'16-|c'8a6gf-|"F"f12-f3z|
+V: Ins
+e4ef^fg^gaabc'^c'd'_e'|Z2|z12z3g|
+V: Vocal
+"F"z16|"D#dim7"z16|"D#dim7"z8"D#dim7"az4zbz|"G#maj7/E#"gz12z3|
+V: Ins
+agfcbac'gagfcgfed|^f_e^Ad=fec=AcBAGAGFG|Ac_e^faafaz8|zc'_e'c'bgececegc'gec|
+V: Vocal
+"G#maj7/E#"z8gz4zf2|"A#m"f16-|"A#m"f8"A#m/C#"_e'4-"A#/E#"e'4-|
+V: Ins
+_ef^f=fc'bc'^gz8|Z2|
+% outro
+V: Vocal
+"Gm"_e'16-|"Gm"_e'8d'4c'd'e'd'|"C"c'd'e'd'c'd'e'd'"C/E"c'd'e'd'"C/G"c'd'e'd'|"C/G"c'aaggff_e"C/E"ez6z|
+V: Ins
+Z3|z8zcAAGFFF|
+V: Vocal
+"Fmaj7/C"z8"F/A"z4"Bbmaj7"z4|"C/G"z16|"F/C"z8"C"z4"C7/Bb"z4|"F/C"z12"Cmaj7/B"z4|
+V: Ins
+GGGcecccfcccfccc|geccgeccgeccgecc|AFCFAFCFBFCFBFFF|AFCCFFCCAFCC=BBBB|
+V: Vocal
+"F/C"z16|"F/C"z16|"F/C"zz12z3|
+V: Ins
+c2f2f2f2f2f2ffff|f16|Z|

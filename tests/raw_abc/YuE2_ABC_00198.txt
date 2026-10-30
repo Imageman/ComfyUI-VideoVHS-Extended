@@ -1,0 +1,97 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=130
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+Z|z24"Dm"z8|"Dm"z32|"Dm"z32|
+V: Ins
+Z|z4A,2A,2A,6D6E4F4G4|A16z2B2B2^G2A8-|A8z4D8E4F8|
+V: Vocal
+"Gm"z32|"Gm"z32|"C7"z32|"C7"z32|
+V: Ins
+c8c8B16-|B8G,8C6D6E4|G16z4F2E2F8-|F16E6D6C4|
+V: Vocal
+"Fmaj7"z32|"A7/E"z32|"Dm"z32|"D7/F#"z32|
+V: Ins
+B,8A,16B,4C4|^C16C8D8|E16F16-|F8_E8d8c'8|
+V: Vocal
+"Gm"z32|"Em7b5"z32|"Em7b5"z32|"Em7b5"z32|
+V: Ins
+c'16b16-|b16a6g4f'4e'f'f'g'|a'16g'16-|g'16f'12d'4|
+V: Vocal
+"A7sus4"z32|"A7sus4"z32|
+V: Ins
+e'32|^c''4a'4e''4d''4c''4a,4=B,4C4|
+% interlude
+V: Vocal
+"Dm"z32|"Dm"z32|"Gm"z32|"Gm"z32|
+V: Ins
+A,8A,8A,8A,8|A,8A,8^G,8=G,8|^F,8=F,16E,8-|E,16D,4^C,4=C,4=B,,4|
+V: Vocal
+"C"z32|"C"z32|"Fmaj7"z32|"Edim7"z32|
+V: Ins
+B,,8C,,16E,,8-|E,,16C,,4D,,4E,,8|A,,16B,,16|^C,16E,,16|
+V: Vocal
+"Dm/A"z32|"D7/F#"z32|"Gm7/Bb"z32|"Em7b5"z32|
+V: Ins
+F,,16A,,16|^F,,16^G,,16|G,,8B,,8D,8F,8|E,F,2E,2D'2^c'4=c'2=b4_b2a2^g4=g4|
+V: Vocal
+"A7sus4"z32|"Em7b5"z32|"A7sus4"z32|"A7sus4"z32|
+V: Ins
+a16g16-|g16f4e4d4f4|e32|^c''4a'4e''4d''4c''8A,8|
+% verse
+V: Vocal
+"Dm"A,8A,8A,8A,8|"Dm"A,8A,8^G,8=G,8|^F,8=F,16E,8-|E,-E,6"Dm"D12^C12|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"Gm"B32-|"Gm"B16z16|"C"z32|"C"z32|
+V: Ins
+Z|z16B4d'4c'4b'4|a'32-|a'16e'6d'6c''4|
+V: Vocal
+"Fmaj7"z32|"Edim7"z32|"Am/E"z32|"Edim7"z32|
+V: Ins
+b'16a'16-|a'16e'6d'6b'4|a'16g'16-|g'16^c''8b'8|
+V: Vocal
+"Dm/A"z32|"D7/F#"z32|"Gm/Bb"z32|"Em7b5"z32|
+V: Ins
+a'32-|a'16d''4c''4b4c''4|^c''16=b16-|=b16_b4=b4d''4f''4|
+V: Vocal
+"A7sus4"z32|"A7sus4"z8"A7/C#"z8"D#dim7"z8"A#maj7/E#"z8|
+V: Ins
+e''8a,,8A,,8A,,8|^C,8E,8^F,8=F,8|
+% outro
+V: Vocal
+"Gm/D"z32|"Gm/D"z32|"Gm/D"z32|"Gm/D"z32|
+V: Ins
+D,32|Z|B,4^C4=C4B,4A,16-|A,32|
+V: Vocal
+"Gm/D"z32|"Gm/D"z32|"Dm/F"z32|"Dm/F"z16"G#dim7"z16|
+V: Ins
+Z|A,,8^C,4E,4G,16|^F,,16E,,16-|E,,16=B,,16-|
+V: Vocal
+"G#dim7"z32|"G#dim7"z24"Ddim7"z8|"Ddim7"z32|"Ddim7"z8"Dm/Fb"d'24-|
+V: Ins
+=B,,16C,16|=B,,16_B,,16-|B,,32|Z|
+V: Vocal
+"Ddim7"d'32-|"Ddim"d'32-|"Dm"d'8-"Em7b5"d'16-"Edim7"d'8-|
+V: Ins
+Z3|
+V: Vocal
+M:9/8
+"A7/E"d'8-"Edim7"d'8-"A#7/E#"d'8-"Faug"d'12|
+V: Ins
+M:9/8
+Z|
+V: Vocal
+M:4/4
+"Faug"z32|"Faug"z32|"Faug"z4zz24z2|
+V: Ins
+M:4/4
+Z3|

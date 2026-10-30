@@ -1,0 +1,77 @@
+X:1
+T:
+M:4/4
+L:1/16
+Q:1/4=125
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Cm
+% intro
+V: Vocal
+Z|"Cm"z8"G7/B"z8|"Cm"z8"G7/B"z8|"Cm"z8"G7/B"z8|
+V: Ins
+Z|e2e2e2e2d3f3=B2|c3e3c2=B4G4|g2g2g2g2f3a3f2|
+V: Vocal
+"Cm/Eb"z8"Fdim7"z4"G7/B"z4|"Cm/Eb"z8"Fdim7"z4"G7/B"z4|"Cm/Eb"z8"Fdim7"z4"G7/B"z4|"G#maj7/C#"z16|
+V: Ins
+g3c'3=bafedcdBAG|cGECGECG,DFD=B,G,B,G,F,|E,CEGcegefd=BFDB,A,F,|E,A,CDEAceaecAECA,E,|
+V: Vocal
+"Dm7b5"z16|"G#"z16|"G#maj7/G##"z16|
+V: Ins
+F,A,DFAdfdafdAFDA,F,|E,A,CDEAceaecAECA,E,|=B,,E,B,CEAcAecAECA,E,B,,|
+% interlude
+V: Vocal
+"Cm/G"z16|"Abmaj7/G"z16|"Fm/G"z16|"F#dim7"z8"C#dim/G#"z8|
+V: Ins
+G,,C,G,CEGcegecGECA,E,|=B,,A,,C,D,E,A,CDEAcdeaed|=B,C,D,E,F,A,B,CDEFGABcd|e=Acdeac'd'e'2d'2c'2a2|
+V: Vocal
+"Cm/G"g8-"Fm"g8-|"Cm/Eb"g8-"Dm7b5"g8-|"Cm/Eb"g8-"Fdim7"g8-|"Cm/Eb"g8-"Ddim7"g4-"G7/B"G4|
+V: Ins
+Z4|
+V: Vocal
+"Cm/Eb"z16|"C/E"z16|"Fm6"z16|"D#dim7"z12"G#maj7/D#"z4|
+V: Ins
+g3c3e2f3g3a2|g3c3e2f3g3a2|g3f3e2d3c3d2|f4e4d4=B4|
+% verse
+V: Vocal
+"G#"c6d2e4f4-|f4g4a4"Cm"c'4-|"Cm"c'16-|"Cm"c'16-|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"Fm"c'12z4|"Bb"z16|"Eb"z16|"Abmaj7"z16|
+V: Ins
+z12a'g'a'c''|=b'8_b'8|g'bgbgbgbgbgbgbgb'|e''8c''8|
+V: Vocal
+"Ddim"z16|"G7/B"z16|"Cm(maj7)"z8"C#dim7"z8|"D#dim7"z8"D#7/G#"z8|
+V: Ins
+f'afafafafafafafa|=b8b8|ECEGcegegeBGEB,EG,|^F,A,CEFAceac'aecAEC|
+V: Vocal
+"Fm/Ab"z16|"Fm/Ab"z16|"G7sus4"z16|"G7sus4"z8"Gaug"z8|
+V: Ins
+A,=B,CDEFAcdfAcdfAc|dfAcdfAcdfAcdfAc|dG,=B,CDFABcdfabc'd'=e'|f'=a'=bc'd'e'=e'^f'a'b'_b'_a'g'^f'=f'e'_e'|
+% outro
+V: Vocal
+"Cm/Eb"g'3c'-c'2e'2"Fdim"f'3g'-g'2a'2|"C/E"g'3c'-c'2e'2"Fdim"f'3g'-g'a'a'b'|Z|
+V: Ins
+Z3|b4f4d4=B4-|
+V: Vocal
+M:1/4
+"Cm/Eb"z4|
+V: Ins
+M:1/4
+=B2c2-|
+V: Vocal
+M:4/4
+"Cm/Eb"z16|"Cm/Eb"z16|"Cm/Eb"z8"C#dim7"z8|"C#dim7"z16|
+V: Ins
+M:4/4
+c6=Begcegc'ege'|c''g'e'c'gcGECE,G,CEGce|gc'e'gcEG,E,C,E,_D,=A,,D,F,A,D|=EGBEG,B,E,_D,E,A,,D,D,F,A,D=E|
+V: Vocal
+"C#dim7"z16|"C#6"z16|"C#6"z8"G#"z8|"G#"z16|
+V: Ins
+AB=E_A,B,E,_D,D,F,A,B,DFABF|ABFFA_D=EFABFABd=ef|ab_d'=e'a'b'd''d''_e''8-|e''8z8|
+V: Vocal
+"G#"z12zz3|Z3|
+V: Ins
+Z|

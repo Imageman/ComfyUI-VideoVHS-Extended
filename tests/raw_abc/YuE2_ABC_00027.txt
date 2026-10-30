@@ -1,0 +1,81 @@
+X:1
+T:
+M:4/4
+L:1/16
+Q:1/4=130
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% intro
+V: Vocal
+z4"C"z8"G7"z4|"G7"z16|"C"z8"Fmaj7"z4"G7sus4"z4|"G7sus4"z8"G7"z8|
+V: Ins
+zee2e2e2gfe2d2d2-|d2Bcd2d2f2f2a2g2-|g6eefeeedddd|ccccBBBBAAAAGGGG|
+V: Vocal
+"Cmaj7/E"z16|"G7/D"z8"G7/B"z8|"C/G"z8"Fmaj7/A"z4"Fmaj7/C"z4|"Cmaj7/G"z8"G6"B3A-"C"A2B2|
+V: Ins
+FEEEFEEEFEEEEEEE|FFFFGGGGAAAABBBB|ccccddddcccceeee|ggggffffz8|
+% verse
+V: Vocal
+"C"c3c3cB"F"A3A3A^G|"F"A3A3AG"Dm"F3F3GA|"G"B3B3B_B=B3B-"G/B"B2A^G|"C"G4"Cmaj7/E"E4"Fm(maj7)"F4"Eb"^F4|
+V: Ins
+Z4|
+V: Vocal
+"D#6"G16-|"D#dim7"G16|"Dm/F"A16-|"Dm/F"A16-|
+V: Ins
+Z4|
+V: Vocal
+"Dm/F"A16-|"Dm/F"A16|"Dm/F"z16|"Dm/F"z8"G"z8|
+V: Ins
+Z2|d'8^c'4=c'4|b2a2g2f2e2d2c2B2|
+% interlude
+V: Vocal
+"C"z16|"C"z8"G7/D"z8|"G7/D"z16|"C/E"z8"Fmaj7"z8|
+V: Ins
+c4e2eegfeefedd|edeeddeeefffgggg|a^ggabaaabaaabaaa|bgggeeeeffffgeee|
+V: Vocal
+"Fmaj7/A"z8"C/G"z8|"C/E"z8"Fmaj7/A"z4"Cmaj7/G"z4|"Cmaj7/G"z8"Cmaj7/E"z8|"C/E"z16|
+V: Ins
+fefefeeegeeeegee|fefeeeeeaeeeeeee|geeeeeeeaeeeeeee|geeegeeegggggggg|
+V: Vocal
+"Dm7/C"d'4-"Fmaj7/C"d'4-"F"d'4c'4-|"F"c'16-|"F"c'4-"G"c'12-|
+V: Ins
+Z3|
+% chorus
+V: Vocal
+"G"c'4"Cmaj7/G"g4g3f-"G"f2e2|"G"d3d3dd"F"f3f3ed|"F"f3f3ed"Dm"f3f3gf|"Dm"a3a-"Em"a2gf"Fm(maj7)"g3g-"Fm"g2ff|
+V: Ins
+Z4|
+V: Vocal
+"A#6"_b16-|"A#6"_b8-"G#6"b8-|"C/G"_b16-|"C/G"_b16|
+V: Ins
+Z4|
+% outro
+V: Vocal
+"G#maj7"z16|"A#"z16|"D#"z12"A#/E#"z4|"Fm"z12"Fm/Ab"z4|
+V: Ins
+c'^GGGGGGGGGGGGGGG|_BBBBBBBBBBBBBBBB|_BGGGBGGGBBGBBBFB|^d^GcGcGcGcGcGGccf|
+V: Vocal
+"A#"z16|"C"z8"Fmaj7/A"z8|"C/G"z8"Fmaj7/A"z8|"C/G"z8"G7"z8|
+V: Ins
+^gfgfgfgfgfgfgfgf|^gegegegggegeeeee|eeeeeeeeeeeeeeee|geeeeeeefdddffff|
+V: Vocal
+"C"z12"G/B"z4|Z2|
+V: Ins
+e4e4e4d4|e4g4g4g2f2|^d'3^f'3=f'3f'3d'3^d'-|
+V: Vocal
+M:2/4
+Z|
+V: Ins
+M:2/4
+^d'2=d'3^d'3|
+V: Vocal
+M:4/4
+"C/E"c'8-"Fm(maj7)"c'8-|"A#6"c'16-|"A#6"c'16|"C"z16|
+V: Ins
+M:4/4
+Z3|e'^d'e'd'e'd'e'd'e'd'e'd'e'd'e'd'|
+V: Vocal
+"C"z16|"C"zz12z3|
+V: Ins
+e'^d'e'd'e'd'e'd'=d'^d'=d'^c'=c'^c'=c'b|b12z4|

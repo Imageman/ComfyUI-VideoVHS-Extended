@@ -1,0 +1,106 @@
+X:1
+T:
+M:2/4
+L:1/32
+Q:1/4=108
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:F
+% intro
+V: Vocal
+z8"F"z8|"F"z16|"C7/E"z8"C7"z8|"F"z16|
+V: Ins
+Z|c4c4A4c4|B2c2B2A2G4E4|F2G2A4C8|
+V: Vocal
+"F"z16|"Dm7/F"z16|"C7/E"z8"C7/G"z8|"Gm7/D"z8"Gm7/Bb"z8|
+V: Ins
+c'2d'2a2g2f8|d'4d'4a6a2|c'4b2a2g6g2|b4b4g6g2|
+V: Vocal
+"C7/G"z8"C7/E"z8|"F/A"c''16-|"F/A"c''16-|"C"c''16-|
+V: Ins
+a4g2f2e6e'2|Z3|
+V: Vocal
+"C"c''16|"F/C"f''16-|"C"f''16-|"F/C"f''16|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"F/C"z16|"Dm7/F"z8"F/A"z8|"Bbmaj7/F"z8"F/A"z8|"Dm/F"z8"Aaug"a'8-|
+V: Ins
+f'8c'4b4|a16-|a16-|a8z8|
+V: Vocal
+"Aaug"a'16-|"A#maj7"a'16-|"A#maj7"a'16-|"A#maj7"a'16-|
+V: Ins
+Z4|
+V: Vocal
+"A#maj7"a'8-"A7/E"a'8-|"A7/E"a'8-"Dm(maj7)"a'8-|"Dm(maj7)"a'16-|"Dm(maj7)"a'8-"Gm(maj7)"a'-^f''2d''2^c''2c''2|
+V: Ins
+Z4|
+V: Vocal
+"Gm(maj7)"=b'2_b'2=b'2b,2_B,4=B,4|=B,4_B,2=B,2^G,4=B,,2G,,2|^G,,4=B,,4C,4C,4|C,4E,2E,2G,4=B,4|
+V: Ins
+Z4|
+% chorus
+V: Vocal
+"F"C16-|"F"C16|"F"c''32|"F"z8c''6c''2|
+V: Ins
+Z3|f''2d''2c''2b'2z8|
+V: Vocal
+"F"c''8"F/A"f''8-|"F/A"f''16-|"F/A"f''16-|"F/A"f''16-|
+V: Ins
+Z4|
+% interlude
+V: Vocal
+"A#maj7"f''16-|"A#maj7"f''16-|"A#maj7"f''8z8|"A#maj7"z8"A"z8|
+V: Ins
+Z3|d'8e'8|
+V: Vocal
+"Dm"z16|"Dm"z16|"Dm"z16|"Dm"d'8"A/C#"e'8|
+V: Ins
+f'16|d'8a'8|g'16|Z|
+% outro
+V: Vocal
+"Dm/F"f'16-|"Dm/F"f'16-|"Dm/F"f'16-|
+V: Ins
+Z3|
+V: Vocal
+M:5/8
+"Dm/F"f'4-"C/E"f'4-"Dm/F"f'4-"C/E/G"g'-f'-f'|f'e'e'_e'd'd'^c'=c'=b2_b2a2^g2=g^f^f=fe2|_e4d2^c2=c4=B4_B4|^G4=G2^F2=F4E4_E4|
+V: Ins
+M:5/8
+Z4|
+V: Vocal
+"F"F,3F,3F,3F,3F,3F,3F,3|"F"F,3F,3F,3F,3z8|
+V: Ins
+Z|z12c''2=b'b'a'a'g'^g'=g'^f'|
+V: Vocal
+M:2/4
+"F"z16|"A#"z8"F/A"z8|"C7/G"z8"C7/E"z8|"A#"z8"Dbaug"z8|
+V: Ins
+M:2/4
+g'16|b8a8|g16|b8a8|
+V: Vocal
+"C7"z16|"Gm7/Bb"b'16-|"Gm7/Bb"b'16-|"C7/Bb"b'16|
+V: Ins
+g16|Z3|
+V: Vocal
+"C7/Bb"d''8"A7/C#"e''8|"Dm"f''16-|"Dm"f''16-|"Dm"f''16|
+V: Ins
+Z4|
+V: Vocal
+"Dm"d''8"A/C#"e''8-|"Dm/F"e''4f'12-|"Dm/F"f'16-|"Dm/F"f'4z4f4f4|
+V: Ins
+Z4|
+V: Vocal
+"Dm/F"a4d'4a4d'2f2-|f2d2a2f2d2a2c4|d4^c2=c2-"F"c2=B,2_B,4|A,2B,2=B,2C2^C2_E4=E2|
+V: Ins
+Z4|
+V: Vocal
+"F"F8-"G#maj7"F8-|"A#"F8-"F/A"F8-|"Gm7"F8-"C"F8-|"F"F16|
+V: Ins
+Z4|
+% chorus
+V: Vocal
+"F"z16|Z3|
+V: Ins
+Z3|

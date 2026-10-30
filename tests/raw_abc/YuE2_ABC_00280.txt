@@ -1,0 +1,100 @@
+X:1
+T:
+M:4/4
+L:1/32
+Q:1/4=125
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Dm
+% intro
+V: Vocal
+Z|"Dm"z32|"A7"z32|"A7"z32|
+V: Ins
+z16z4a4^g4a4|b8a8d'8c'8|c'8=b8_b16|g8^f8=f16|
+V: Vocal
+"Dm"z32|"Dm"z32|"Gm7/Bb"z32|"A7"z32|
+V: Ins
+e8_e4d4d16|d'8^c'8=c'16|c'8=b4_b16B4|A16^c8e4f2e2|
+V: Vocal
+"Dm"z32|
+V: Ins
+d32|
+% verse
+V: Vocal
+"Dm"d'16d'6e'6f'4-|"Dm"f'4a16z12|"Gm"c'8b8"C"c'6d'6e'4-|"Fmaj7"e'4a16z12|
+V: Ins
+Z4|
+V: Vocal
+"A#maj7"a16"Bbmaj7"a6b6c'4-|"Em7b5"c'4g16z12|"A7"g12g4g8f8-|"Dm"f4f12-"A/C#"f4z12|
+V: Ins
+Z3|z16z4a2b2a2g2f2e2|
+% chorus
+V: Vocal
+"Dm"d'16d'8c''8|"Gm"c''8=b8_b8a8|"C"g32-|"C"g32|
+V: Ins
+Z4|
+V: Vocal
+"A#"c''32-|"A#dim7"c''32-|"A7"c''32|"A"z32|
+V: Ins
+Z3|a8a8a8z8|
+% interlude
+V: Vocal
+"Dm"z32|"Gm"z32|"C"z32|"Fmaj7"z32|
+V: Ins
+f4d4^c4d4f16|B4B4A4B4g16|e8_e4=e4g16|A16^G,6=G,6^F,4|
+V: Vocal
+"Bbmaj7"z32|"Em7b5"z32|"A7"z32|"Dm"z16"A/C#"z16|
+V: Ins
+F,8d'8c'16|b16a16|g32|f16e16|
+% chorus
+V: Vocal
+"Dm"d'16d'8c''8|"Gm"c''8=b8_b8a'8-|"C"a'4g'2g'2g'24-|"C"g'24f'8-|
+V: Ins
+Z4|
+V: Vocal
+"A#maj7"f'8c''16-"A#dim7"c''8-|"A#dim7"c''32-|"A7"c''32-|"A"c''8z24|
+V: Ins
+Z3|z16a8f8|
+% interlude
+V: Vocal
+"Dm"z32|"Dm"z32|"Gm"z32|"Gm"z32|
+V: Ins
+a32|a8d8e8f4a4|c'8b4b16-b4-|b4b4d'4e'4f'4e'4d'4b4|
+V: Vocal
+"C"z32|"C"z32|"Fmaj7"z32|"Fmaj7"z16"Fmaj7/E"z16|
+V: Ins
+g16e16|g16c12c'4|b16a16-|a16^g8=g4f4|
+% chorus
+V: Vocal
+"Dm"d16d'16-|"Dm"d'd''6"Gm"c''8=b8_b8|"Gm"a'16"C"a'8g'2g'2g'2z2|"C"g'32-|
+V: Ins
+Z4|
+V: Vocal
+"C"g'32-|"C"g'32-|"C"g'16-"A#"g'16|
+V: Ins
+Z3|
+% outro
+V: Vocal
+"A#"z8"A#maj7/C##"z8"D#maj7/D##"z8"D#dim7"z8|"D#dim7"z32|
+V: Ins
+Z|_e''12d''8^c''8=c''2c''2-|
+V: Vocal
+M:9/8
+"D#dim7"z32"Dm"z4|
+V: Ins
+M:9/8
+c''4=b'4_b'4a'4^f'4_e'4d'4^c'4=c'=bb_b|
+V: Vocal
+M:4/4
+"Dm"z32|"Dm"z32|"Dm"z32|"Gm/Bb"z32|
+V: Ins
+M:4/4
+b4a16^c12|d16e16|f16a16|g32-|
+V: Vocal
+"Gm/Bb"z32|"Gm/Bb"z8"A7sus4"a16-"A7"a8-|"A7"a32-|"A7"a8-"Dm(maj7)"a16-"Dm"a8-|
+V: Ins
+g16f'16|Z3|
+V: Vocal
+"Dm"a32-|"Dm"a32-|"Dm"a8z16z6z2|
+V: Ins
+Z3|
