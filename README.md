@@ -43,7 +43,11 @@ switch to CPU: choose `libx264` explicitly. Changing `VHS_FORCE_FFMPEG_PATH` aft
 On Windows, set `VHS_FORCE_FFMPEG_PATH` to the full executable path before starting ComfyUI.
 `ffprobe` is selected beside that executable when available, otherwise from PATH.
 
-## Inputs
+## Video Save Extended (VHS)
+
+![Video Save Extended node interface](doc/Video_Save_Extended_(VHS).png)
+
+### Inputs
 
 | Input | Default | Behavior |
 | --- | --- | --- |
@@ -181,6 +185,8 @@ Fraction frame rates, sequence iteration, metadata controls and the `ui.gifs`/`V
 These extension interfaces may change upstream; a matching node name alone is not proof of compatibility.
 
 ## YuE2 Auto Instrumental (VHSX)
+
+![YuE2 Auto Instrumental node interface](doc/YuE2_Auto_Instrumental_(VHSX).png)
 
 Use **Video VHS Extended → YuE2 Auto Instrumental (VHSX)** to prepare a YuE2 ABC score for instrumental
 generation. The node expects `Vocal` and `Ins` voices. With the default `instrumental_priority` policy, it mutes
