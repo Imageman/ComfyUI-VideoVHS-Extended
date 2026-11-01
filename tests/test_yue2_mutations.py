@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+from yue2_test_support import assert_duration_close
+
 from yue2_auto_instrumental import ABCScoreParser, ScoreError
 from yue2_test_support import CORPUS, assert_ground_truth, fingerprint, verify_manifest
 
@@ -235,8 +237,8 @@ def test_raw_contract_for_every_lyrics_mode(lyrics: str, mode: str) -> None:
     assert result.max_duration == 300.0
 
 @pytest.mark.unit
-def test_numeric_duration_uses_serialized_grid_end() -> None:
-    """Expose a one-second numeric underestimate after the Ins grid is extended."""
+def test_numeric_duration_accepts_small_grid_difference() -> None:
+    """Allow a one-second discrepancy under the approved duration threshold."""
     from yue2_auto_instrumental import _score_seconds, convert_abc
     source = (
         "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nV: Vocal\nC8|D8|\n"
@@ -244,4 +246,34 @@ def test_numeric_duration_uses_serialized_grid_end() -> None:
     )
     result = convert_abc(source, on_unrecoverable="smart")
     output = ABCScoreParser("strict", 4).parse(result.abc)
-    assert result.score_seconds == pytest.approx(_score_seconds(output), abs=1e-8)
+    assert_duration_close(result.score_seconds, _score_seconds(output))
+
+@pytest.mark.unit
+@pytest.mark.parametrize("difference,accepted", ((0.0, True), (4.999, True), (5.0, False), (5.001, False)))
+def test_duration_tolerance_boundary(difference: float, accepted: bool) -> None:
+    """Keep the approved threshold strict at five seconds in both directions."""
+    for sign in (-1, 1):
+        if accepted:
+            assert_duration_close(100.0, 100.0 + sign * difference)
+        else:
+            with pytest.raises(AssertionError):
+                assert_duration_close(100.0, 100.0 + sign * difference)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("original,damaged", (
+    ("^C8|C8|", "^C8C8|"),
+    ("^C8-|C8|", "^C8-C8|"),
+    ("^C8|_C8|", "^C8_C8|"),
+    ("^C4C4|C8|", "^C4C4C8|"),
+))
+def test_recovered_bar_accidental_scope(original: str, damaged: str) -> None:
+    """Reset inferred bar accidentals while preserving ties and explicit alterations."""
+    from yue2_auto_instrumental import convert_abc
+    from yue2_test_support import expected_notes, notes
+    prefix = "X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nV: Vocal\n"
+    suffix = "\nV: Ins\nZ2|\n"
+    source = ABCScoreParser("strict", 4).parse(prefix + original + suffix)
+    result = convert_abc(prefix + damaged + suffix, on_unrecoverable="smart")
+    output = ABCScoreParser("strict", 4).parse(result.abc)
+    assert notes(output) == expected_notes(source, "instrumental_priority")

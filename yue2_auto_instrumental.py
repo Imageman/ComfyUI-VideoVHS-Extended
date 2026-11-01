@@ -1598,6 +1598,8 @@ class ABCScoreParser:
         events: list[ScoreEvent] = []
         offset = Fraction(0)
         measure_accidentals: dict[str, int] = {}
+        accidental_bar = 0
+        measure_width = _measure_duration(voice.meter)
         ignored = set(candidate.ignored_tokens)
         note_overrides = dict(candidate.note_token_overrides)
         for index, token in enumerate(tokens):
@@ -1655,6 +1657,10 @@ class ABCScoreParser:
                     line_number=line_index + 1,
                 )
             else:
+                current_bar = int(offset // measure_width)
+                if current_bar != accidental_bar:
+                    measure_accidentals.clear()
+                    accidental_bar = current_bar
                 pitch, _ = _pitch_from_token(
                     note,
                     octave_marks,

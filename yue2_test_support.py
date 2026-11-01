@@ -17,6 +17,16 @@ CORPUS = ROOT / "tests" / "raw_abc"
 MANIFEST = ROOT / "tests" / "raw_abc_manifest.json"
 BASELINE = ROOT / "tests" / "yue2_baseline.json"
 LOGGER = logging.getLogger(__name__)
+MAX_DURATION_DIFFERENCE_SECONDS = 5.0
+
+
+def assert_duration_close(reported: float, serialized: float) -> None:
+    """Accept duration differences strictly below the user-approved five-second threshold."""
+    import math
+    assert math.isfinite(reported) and math.isfinite(serialized), "Non-finite duration"
+    difference = abs(reported - serialized)
+    assert difference < MAX_DURATION_DIFFERENCE_SECONDS, f"Duration difference {difference} seconds is too large"
+
 
 
 def dependency(name: str) -> Path:

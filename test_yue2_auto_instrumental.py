@@ -1163,6 +1163,7 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         """Save unique source, repaired, converted, and diagnostic artifacts on request."""
         from yue2_auto_instrumental import VHSXYuE2AutoInstrumental
 
+        (ROOT / "tmp").mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="yue2-node-debug-", dir=ROOT / "tmp") as temp_name:
             folder_paths = SimpleNamespace(get_output_directory=lambda: temp_name)
             with patch.dict(sys.modules, {"folder_paths": folder_paths}):
@@ -1189,6 +1190,7 @@ class YuE2AutoInstrumentalTests(unittest.TestCase):
         from yue2_auto_instrumental import VHSXYuE2AutoInstrumental
 
         source = _make_score("C4H4|", "Z|")
+        (ROOT / "tmp").mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="yue2-node-partial-", dir=ROOT / "tmp") as temp_name:
             folder_paths = SimpleNamespace(get_output_directory=lambda: temp_name)
             with patch.dict(sys.modules, {"folder_paths": folder_paths}):
