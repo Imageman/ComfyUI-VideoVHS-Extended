@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
+from collections import Counter
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
+from unittest.mock import patch
 
 import pytest
 
@@ -76,6 +80,60 @@ def validate(source: str, result: Any, policy: str) -> None:
     assert _score_end(output) == _score_end(original)
 
 
+def validate_upstream_chords(source: str, result: Any, checker: Any) -> bool:
+    """Validate structure while tracking unchanged unsupported source chord labels."""
+    source_labels: list[str] = []
+    in_body = False
+    for line in source.splitlines():
+        if line.startswith("V: ") and "clef=" not in line:
+            in_body = True
+            continue
+        if not in_body or not line.strip() or line.lstrip().startswith("%"):
+            continue
+        source_labels.extend(re.findall(r'"([^"\n]+)"', line))
+    unsupported = Counter(label for label in source_labels if checker.CHORD.fullmatch(label) is None)
+    if not unsupported:
+        checker.parse(result.abc)
+        return True
+
+    allowed = "|".join(re.escape(label) for label in unsupported)
+    source_chords = re.compile(f"(?:{checker.CHORD.pattern})|(?:{allowed})")
+    with patch.object(checker, "CHORD", source_chords):
+        score = checker.parse(result.abc)
+    output_unsupported = Counter(
+        label for voice in score.voices.values() for _, label in voice.chords
+        if checker.CHORD.fullmatch(label) is None
+    )
+    assert output_unsupported == unsupported, "Unsupported source chord labels were changed or removed"
+    diagnostics = json.loads(result.warnings)["diagnostics"]
+    problems = [item["problem"] for item in diagnostics if item.get("code") == "unsupported_chord_quality"]
+    for label in unsupported:
+        assert any(repr(f'"{label}"') in problem for problem in problems), f"Missing chord warning: {label}"
+    return False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("change", ("removed", "introduced", "warning", "invalid_structure"))
+def test_upstream_chord_validation_rejects_regressions(change: str, checker: Any) -> None:
+    """Reject changed chords, missing diagnostics, and unrelated invalid ABC structure."""
+    source = (CORPUS / "YuE2_ABC_00043.txt").read_bytes().decode("utf-8")
+    result = convert_abc(source)
+    assert not validate_upstream_chords(source, result, checker)
+    if change == "removed":
+        result = replace(result, abc=result.abc.replace('"G/A/B"', '"G"'))
+    elif change == "introduced":
+        result = replace(result, abc=result.abc.replace('"G/A/B"', '"G/A/C"'))
+    elif change == "warning":
+        warnings = json.loads(result.warnings)
+        warnings["diagnostics"] = [item for item in warnings["diagnostics"]
+                                   if item.get("code") != "unsupported_chord_quality"]
+        result = replace(result, warnings=json.dumps(warnings))
+    else:
+        result = replace(result, abc=result.abc.replace("X:1", "X:2", 1))
+    with pytest.raises((AssertionError, checker.AbcError)):
+        validate_upstream_chords(source, result, checker)
+
+
 @pytest.mark.corpus
 @pytest.mark.upstream
 @pytest.mark.parametrize("mode", ("error", "smart"))
@@ -105,7 +163,8 @@ def test_full_corpus(path: Path, mode: str, checker: Any, audit_root: Path) -> N
 @pytest.mark.upstream
 @pytest.mark.parametrize("policy,lyrics,mode", itertools.product(POLICIES, LYRICS, RECOVERY))
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
-def test_full_mode_matrix(path: Path, policy: str, lyrics: str, mode: str, checker: Any) -> None:
+def test_full_mode_matrix(path: Path, policy: str, lyrics: str, mode: str, checker: Any,
+                          record_property: Any) -> None:
     """Validate every applicable recovery, lyrics and overlap policy combination."""
     source = path.read_bytes().decode("utf-8")
     try:
@@ -123,7 +182,8 @@ def test_full_mode_matrix(path: Path, policy: str, lyrics: str, mode: str, check
         return
     validate(source, result, policy)
     if result.conversion_status != "PARTIAL_RAW":
-        checker.parse(result.abc)
+        compatible = validate_upstream_chords(source, result, checker)
+        record_property("upstream_chord_compatible", compatible)
 
 
 @pytest.mark.unit

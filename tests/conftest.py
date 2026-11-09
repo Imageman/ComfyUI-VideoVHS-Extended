@@ -4,6 +4,9 @@ from __future__ import annotations
 from typing import Any
 import pytest
 
+REPRESENTATIVE_VALID_SCORES = 25
+REPRESENTATIVE_INVALID_SCORES = 10
+
 
 def pytest_collection_modifyitems(items: list[Any]) -> None:
     """Keep legacy full-corpus checks out of the fast unit selection."""
@@ -32,19 +35,27 @@ def pytest_collection_finish(session: Any) -> None:
         return
     from yue2_test_support import verify_manifest
     from yue2_auto_instrumental import ABCScoreParser, ScoreError
-    selected = []
+    selected_valid = []
+    selected_invalid = []
     for path in verify_manifest():
         try:
             ABCScoreParser("strict", 4).parse(path.read_text(encoding="utf-8"))
         except ScoreError:
-            continue
-        selected.append(path.name)
-        if len(selected) == 25:
+            if len(selected_invalid) < REPRESENTATIVE_INVALID_SCORES:
+                selected_invalid.append(path.name)
+        else:
+            if len(selected_valid) < REPRESENTATIVE_VALID_SCORES:
+                selected_valid.append(path.name)
+        if (len(selected_valid) == REPRESENTATIVE_VALID_SCORES
+                and len(selected_invalid) == REPRESENTATIVE_INVALID_SCORES):
             break
+    selected = set(selected_valid + selected_invalid)
     kept, removed = [], []
     for item in session.items:
         path = getattr(getattr(item, "callspec", None), "params", {}).get("path")
         is_extended = item.get_closest_marker("extended") is not None
-        (removed if is_extended and path is not None and path.name not in selected else kept).append(item)
+        is_mutation = item.path.name == "test_yue2_mutations.py"
+        (removed if is_extended and not is_mutation and path is not None and path.name not in selected
+         else kept).append(item)
     session.items[:] = kept
     session.config.hook.pytest_deselected(items=removed)

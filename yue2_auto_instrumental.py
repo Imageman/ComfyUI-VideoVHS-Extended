@@ -648,7 +648,7 @@ def _rewrite_raw_section_comments(
             continue
         line = lines[line_index]
         ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
-        lines[line_index] = f"% {section}{ending}" if section is not None else ending
+        lines[line_index] = f"% {section}{ending}" if section is not None else ""
     if add_fallback_section_comments:
         newline = "\r\n" if "\r\n" in abc else "\n"
         first_voice = next(
@@ -4361,10 +4361,15 @@ class _SmartRecoveryStrategy:
                         break
                     note_name = note_match.group("note")
                     if note_name == "Z":
-                        if note_match.group("length"):
+                        rest_length = note_match.group("length")
+                        if rest_length and not rest_length.isdecimal():
                             invalid = True
                             break
-                        duration = width
+                        rest_count = int(rest_length) if rest_length else 1
+                        if rest_count < 1 or rest_count > MAX_MEASURES:
+                            invalid = True
+                            break
+                        duration = width * rest_count
                     else:
                         multiplier = _parse_fraction(note_match.group("length"))
                         dots = len(note_match.group("dots"))
@@ -4394,7 +4399,7 @@ class _SmartRecoveryStrategy:
             _SmartTextCandidate(
                 newline.join(repaired_lines) + (newline if abc.endswith(("\n", "\r")) else ""),
                 "missing_barline",
-                " ".join(changes),
+                " ".join(changes) + " Other causes or boundary placements may be possible.",
                 (1, len(changes), 1),
             )
         ]
@@ -5316,6 +5321,32 @@ def convert_abc(
 
     if result.conversion_status in {"SMART_PARTIAL", "PARTIAL_RAW", "SMART_RECOVERED"}:
         return result
+
+    if on_unrecoverable == "smart":
+        problems = [item.problem for item in result.diagnostics]
+        has_overflow = any("Measure duration exceeds its meter" in problem for problem in problems)
+        has_grid_mismatch = any("source grids differ" in problem for problem in problems)
+        if has_overflow and has_grid_mismatch:
+            strategy = _SmartRecoveryStrategy(
+                repair_mode="extended",
+                melody_policy=melody_policy,
+                lyrics_mode=lyrics_mode,
+                padding_seconds=padding_seconds,
+                max_repair_units=max_repair_units,
+            )
+            parser = ABCScoreParser("extended", max_repair_units)
+            newline = "\r\n" if "\r\n" in abc else "\n"
+            proposals = strategy._barline_candidates(abc, parser, abc.splitlines(), newline)
+            for proposal in proposals:
+                try:
+                    ABCScoreParser("strict", max_repair_units).parse(proposal.text)
+                    candidate = _convert_abc_checked(
+                        proposal.text, "extended", melody_policy, lyrics_mode, padding_seconds, max_repair_units
+                    )
+                except ScoreError:
+                    continue
+                strategy._mark_smart_recovered(candidate, [], [proposal.reason], len(proposals), [])
+                return candidate
 
     if on_unrecoverable == "continue":
         uncertain_repairs = [

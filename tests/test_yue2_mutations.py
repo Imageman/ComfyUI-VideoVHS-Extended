@@ -184,6 +184,22 @@ def test_known_barline_recovery(path: Path, record_property: Any) -> None:
     assert _score_end(output) == _score_end(original)
 
 @pytest.mark.unit
+@pytest.mark.parametrize("file_id", (2, 152))
+def test_missing_barline_reports_uncertain_recovery(file_id: int) -> None:
+    """Report the guessed boundary and preserve the original sounding melody."""
+    from yue2_auto_instrumental import convert_abc
+    from yue2_test_support import expected_notes, notes
+
+    source = (CORPUS / f"YuE2_ABC_{file_id:05d}.txt").read_bytes().decode("utf-8")
+    original = ABCScoreParser("strict", 4).parse(source)
+    damaged = mutate_text(source, "remove_barline")
+    result = convert_abc(damaged, on_unrecoverable="smart")
+    assert result.conversion_status == "SMART_RECOVERED"
+    assert notes(ABCScoreParser("strict", 4).parse(result.abc)) == expected_notes(original, "instrumental_priority")
+    assert any("Other causes or boundary placements may be possible" in item.repair for item in result.diagnostics)
+
+
+@pytest.mark.unit
 def test_missing_barline_preserves_original_accidental_scope() -> None:
     """Expose accidental leakage across a recovered measure boundary without changing the converter."""
     from yue2_auto_instrumental import convert_abc
@@ -211,6 +227,21 @@ def test_auditor_detects_terminal_and_tie_corruption(kind: str) -> None:
     right = ABCScoreParser("strict", 4).parse(after)
     with pytest.raises(AssertionError, match="ground-truth"):
         assert_ground_truth(left, right)
+
+@pytest.mark.unit
+@pytest.mark.parametrize("newline", ("\n", "\r\n"))
+def test_raw_section_merge_preserves_existing_blank_lines(newline: str) -> None:
+    """Remove duplicate comments without adding or deleting unrelated blank lines."""
+    from yue2_auto_instrumental import convert_abc
+
+    source = newline.join((
+        "X:1", "M:4/4", "L:1/8", "Q:1/4=120", "K:C", "% Verse", "",
+        "% Pre-chorus", "V: Vocal", "C8|", "e''0'|", "V: Ins", "Z2|", "",
+    ))
+    result = convert_abc(source, lyrics_mode="instrumental_sections", on_unrecoverable="continue")
+    assert result.conversion_status == "PARTIAL_RAW"
+    assert result.abc == source.replace("% Verse", "% Instrumental").replace(f"% Pre-chorus{newline}", "")
+
 
 @pytest.mark.unit
 @pytest.mark.parametrize("lyrics", ("sections_only", "empty", "instrumental_sections", "instrumental_only"))
